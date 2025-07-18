@@ -9,11 +9,11 @@ using LinearAlgebra
 tabargs = ArgParseSettings()
 @add_arg_table! tabargs begin
     "--framerate"
-    help = "Number of frames per second"
+    help = "Number of frames per second."
     arg_type = Int64
     default = 60
     "--galactic_frame"
-    help = "Number of frames per second"
+    help = "Convert output to galacto-centric frame."
     arg_type = Bool
     default = true
 end
