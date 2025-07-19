@@ -17,7 +17,7 @@ function convert_data()
     tabvz = df[:, 11]
 
     namefile_dat = "path/to/data/dat.10"
-    writedlm(namefile_dat, [tabm tabx taby tabz tabvx tabvy tabz])
+    writedlm(namefile_dat, [tabm tabx taby tabz tabvx tabvy tabvz])
 
 end
 

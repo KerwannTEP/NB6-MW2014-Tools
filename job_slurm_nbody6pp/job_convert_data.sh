@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=mw14_save
 #SBATCH --partition=<partition>
-#SBATCH --nodelist=1
+#SBATCH --nodelist=<node>
 #SBATCH --exclusive
 #SBATCH --time=2-00:00:00
 #SBATCH --output=./log/save_mw2014.out
