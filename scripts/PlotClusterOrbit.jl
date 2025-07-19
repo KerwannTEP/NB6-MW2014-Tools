@@ -182,7 +182,7 @@ function plot_data()
         # Plot the cluster
         scatter(tab_r_in_kpc[:,1], tab_r_in_kpc[:,2], tab_r_in_kpc[:,3], 
                 xlims=(-rmax, rmax), ylims=(-rmax, rmax), zlims=(-rmax, rmax),
-                xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", 
+                xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", zlabel=L"z"*" [kpc]",  
                 framestyle=:box, labels=:false,
                 aspect_ratio=1, size=(800,800), 
                 left_margin = [2mm 0mm], right_margin = [2mm 0mm], 

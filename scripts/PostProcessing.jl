@@ -57,6 +57,7 @@ function get_cluster_position()
 
     tab_out_time = zeros(Float64, nbt)
     tab_Rc_Vc = zeros(Float64, nbt, 6)
+    tab_Uhost = zeros(Float64, nbt)
 
     it = 1
     open(filename, "r") do io
@@ -75,13 +76,14 @@ function get_cluster_position()
                 tab_Rc_Vc[it, 4] = numbers[5]
                 tab_Rc_Vc[it, 5] = numbers[6]
                 tab_Rc_Vc[it, 6] = numbers[7]
+                tab_Uhost[it] = numbers[10] # HU
 
                 it += 1
             end
         end
     end
 
-    return tab_Rc_Vc, tab_out_time
+    return tab_Rc_Vc, tab_out_time, tab_Uhost
 
 end
 
@@ -91,66 +93,132 @@ end
 ################################################################################################################
 
 
+# Copy MWpotential.f file from NBODY6++GPU
 
-# Parameters (in physical units)
+# Bulge
+const b_alpha = 1.8
+const b_rc = 1.9 # kpc 
+const b_norm = 0.05 # Contribution from the bulge to the force at R0=8 kpc
 
-const Mb = 4.501370 * 10^9 # Msun
-const alpha = -1.8
-const rc = 1.9 # kpc
+# Disk 
+const d_a = 3.0 # kpc 
+const d_b = 0.28 # kpc 
+const d_norm = 0.6 # Contribution from the disk to the force at R0=8 kpc
 
-const Md = 6.819390 * 10^10 # Msun
-const ad = 3.0 # kpc
-const bd = 280.0 # pc
+# Halo 
+const h_a = 16.0 # kpc 
+const h_norm = 0.35  # Contribution from the halo to the force at R0=8 kpc
 
-const Mh = 8.092401 * 10^11 # Msun
-const rs = 16.0 # kpc
-const ch = 15.3
-
-const gc = log(1+ch) - ch/(1.0+ch)
-const sb = 0.5*(3.0-alpha)
-const gamma_s = gamma(sb)
+# Scale : Force
+const F_scale = 6.32793804994 # pc/Myr^2 : Force from the galaxy at R0=8 kpc
 
 
-# Potentials (in HU)
+# Forces
 
-const _G = 1.0 # HU
+# fpowercut.f
+# This returns gamma(a) * gammds(x, a) from nbody6++
+function gamma_low(x::Float64, a::Float64)
 
-function gamma_low_sx(xr)
-
-    return gamma_s - gamma(sb, xr)
-
-end
-
-function psi_bulge(r::Float64, rc_HU::Float64, Mb_HU::Float64)
-
-    xr = (r/rc_HU)^2
-
-    # Inner potential
-    gamma_lower = gamma_s - gamma(sb, xr)
-    psi_inner = -_G*Mb_HU/r * gamma_lower/gamma_s
-
-    # Outer potential 
-    gamma_upper = gamma(1.0-alpha/2.0, xr)
-    psi_outer = -_G*Mb_HU/rc_HU * gamma_upper/gamma_s
-     
-    return psi_inner + psi_outer
+    return gamma(a) - gamma(a, x)
 
 end
 
-function psi_disk(R::Float64, z::Float64, ad_HU::Float64, bd_HU::Float64, Md_HU::Float64)
+function Menc_bulge(r::Float64)
 
-    return -_G * Md_HU/sqrt(R^2 + (sqrt(z^2 + bd_HU^2) + ad_HU)^2)
+    a = 1.5 - b_alpha/2.0
+    xup = (r/b_rc)^2
+    ga = gamma_low(xup, a) # = gamma(a) * gammds(x, a)
+    b_amp = 1.0 # G*M units
+    menc = b_amp*2*pi*b_rc^(3-b_alpha)*ga
+
+    return menc
+end
+
+function force_bulge_at_R0()
+    x = 8.0 # kpc 
+    y = 0.0 # kpc 
+    z = 0.0 # kpc 
+    r = x
+    Fr = - Menc_bulge(r)/r^2
+    
+    return Fr
+end
+
+
+# miyamoto.f
+function force_disk_at_R0()
+    x = 8.0 # kpc 
+    y = 0.0 # kpc 
+    z = 0.0 # kpc 
+    R = x
+    bz = sqrt(d_b^2 + z^2)
+    az = sqrt(R^2 + (d_a+bz)^2)
+    d_amp = 1.0 # G*M units
+    az3 = d_amp/az^3
+    FR = -az3*x
+
+    return FR
 
 end
 
-function psi_halo(r::Float64, rs_HU::Float64, Mh_HU::Float64)
+# fnfw.f
+function force_halo_at_R0()
+    x = 8.0 # kpc 
+    y = 0.0 # kpc 
+    z = 0.0 # kpc 
+    r = x
+    ra = h_a + r
+    h_amp = 1.0 # G*M units
+    dp = h_amp*(1/(r^2*ra) - log(1+r/h_a)/r^3)
+    Fr = dp*x
 
-    x = r/rs_HU
-    cst = _G*Mh_HU/rs_HU * 1.0/gc
+    return Fr 
+end
 
-    return -cst/x * log(1+x)
+function normalize_amplitude()
+
+    bamp = b_norm * abs(F_scale/force_bulge_at_R0()) # G*Mbulge
+    damp = d_norm * abs(F_scale/force_disk_at_R0()) # G*Mdisk
+    hamp = h_norm * abs(F_scale/force_halo_at_R0()) # G*Mdisk
+
+    return bamp, damp, hamp
+end
+
+const b_amp, d_amp, h_amp = normalize_amplitude()
+
+
+# Potentials
+# Potential unit: kpc*pc/Myr^2
+
+function potential_bulge(r::Float64, amp::Float64=b_amp)
+
+    xup = (r/b_rc)^2.0
+    a = 1.0 - 0.5*b_alpha
+    a2 = 1.5 - 0.5*b_alpha
+    g1 = gamma_low(xup, a) # gammds(xup, a) * gamma(a)
+    g2 = gamma_low(xup, a2) # gammds(xup, a2) * gamma(a2)
+
+    pot = amp*2*pi*b_rc^(3.0-b_alpha)*(g1/b_rc-g2/r)
+
+    return pot 
+end
+
+function potential_disk(R::Float64, z::Float64, amp::Float64=d_amp)
+
+    pot = -amp/sqrt(R^2+(d_a + sqrt(z^2+d_b^2))^2)
+
+    return pot
 
 end
+
+function potential_halo(r::Float64, amp::Float64=h_amp)
+
+    pot = -amp*log(1.0 + r/h_a)/r 
+
+    return pot
+
+end
+
 
 ################################################################################################################
 # Save important quantities and plots
@@ -181,7 +249,7 @@ function treat_data()
     data_lag = readdlm("path/to/data/lagr.7")
 
     list_files, nbt = get_list_files()
-    tab_Rc_Vc, tab_out_time_in_Myr = get_cluster_position() # IN KPC AND KM/S !!!!
+    tab_Rc_Vc, tab_out_time_in_Myr, tab_Uhost_in_HU = get_cluster_position() # IN KPC AND KM/S !!!!
 
     tab_dist_cluster_in_kpc = sqrt.(tab_Rc_Vc[:, 1] .^ 2 + tab_Rc_Vc[:, 2] .^ 2 + tab_Rc_Vc[:, 3] .^ 2)
 
@@ -208,6 +276,11 @@ function treat_data()
     Nub = 0
     tab_E_wrt_cluster_in_HU = zeros(Float64, Npart)
     tab_Lz_wrt_cluster_in_HU = zeros(Float64, Npart)
+    tab_Eb_wrt_cluster_in_HU = zeros(Float64, Npart)
+    tab_Lzb_wrt_cluster_in_HU = zeros(Float64, Npart)
+
+    tab_pos_unbound_in_HU = zeros(Float64, Npart, 3)
+    tab_pos_bound_in_HU = zeros(Float64, Npart, 3)
 
     Threads.@threads for i=1:nbt
         namefile = list_files[i]
@@ -217,12 +290,12 @@ function treat_data()
         data_star = Float64.(data[2:end, 1:8])
 
         # Cluster's position (convert to HU)
-        xcl = tab_Rc_Vc[1] / kpc_per_HU
-        ycl = tab_Rc_Vc[2] / kpc_per_HU
-        zcl = tab_Rc_Vc[3] / kpc_per_HU
-        vxcl = tab_Rc_Vc[4] / kms_per_HU
-        vycl = tab_Rc_Vc[5] / kms_per_HU
-        vzcl = tab_Rc_Vc[6] / kms_per_HU
+        xcl = tab_Rc_Vc[i, 1] / kpc_per_HU
+        ycl = tab_Rc_Vc[i, 2] / kpc_per_HU
+        zcl = tab_Rc_Vc[i, 3] / kpc_per_HU
+        vxcl = tab_Rc_Vc[i, 4] / kms_per_HU
+        vycl = tab_Rc_Vc[i, 5] / kms_per_HU
+        vzcl = tab_Rc_Vc[i, 6] / kms_per_HU
 
         # Read stellar data
         tab_time_in_HU[i] = data_info[1]
@@ -235,7 +308,8 @@ function treat_data()
         tab_v_in_HU = data_star[:, 5:7]
         tab_pot_in_HU = data_star[:, 8]
 
-        Utot = 0.0
+        Untot = 0.0 # Nbody
+        Uhtot = 0.0 # Host
         Ktot = 0.0
 
         Lxtot = 0.0
@@ -258,28 +332,29 @@ function treat_data()
             m = tab_m_in_HU[k]
             phin = tab_pot_in_HU[k]
 
+            # Potential unit: kpc*pc/Myr^2
+            # Multiply by 1/kpc_per_HU 1/pc_per_HU Myr_per_HU^2 to get HU
+
+            factor_pot = (1.0/kpc_per_HU * 1.0/pc_per_HU * Myr_per_HU^2)
+            # println(factor_pot)
             # Bulge
-            rc_HU = rc / kpc_per_HU
-            Mb_HU = Mb / Msun_per_HU
-            psib =  psi_bulge(r, rc_HU, Mb_HU)
+            psib = potential_bulge(r*kpc_per_HU) * factor_pot
 
             # Disk
-            ad_HU = ad / kpc_per_HU
-            bd_HU = bd / pc_per_HU
-            Md_HU = Md / Msun_per_HU
-            psid = psi_disk(R, z, ad_HU, bd_HU, Md_HU)
+            psid = potential_disk(R*kpc_per_HU, z*kpc_per_HU) * factor_pot
 
             # Halo
-            rs_HU = rs / kpc_per_HU
-            Mh_HU = Mh / Msun_per_HU
-            psih = psi_halo(r, rs_HU, Mh_HU)
+            psih = potential_halo(r*kpc_per_HU) * factor_pot
 
+            
             # Total galactic potential 
             psi_gal = psib + psid + psih
 
             # Potential energy of particle
-            Ui = m * (phin + psi_gal)
-            Utot += Ui 
+            Uni = m * phin
+            Uhi = m * psi_gal
+            Untot += Uni 
+            Uhtot += Uhi 
 
             # Kinetic energy of particle
             Ki = 0.5 * m * (vx^2 + vy^2 + vz^2)
@@ -295,7 +370,7 @@ function treat_data()
             Lztot += Lzi
             
             if (i == isnap)
-                Ui_c = m * phin
+                Ui_c = Uni
                 Ki_c = 0.5 * m * (vxc^2 + vyc^2 + vzc^2)
                 Ei_c = Ki_c + Ui_c 
                 if (Ei_c >= 0.0)
@@ -306,8 +381,7 @@ function treat_data()
 
         end
 
-        Utot *= 0.5
-        
+        Utot = 0.5 * Untot + Uhtot
         Etot = Ktot + Utot
         tab_E_in_HU[i] = Etot 
 
@@ -319,6 +393,7 @@ function treat_data()
         # Snapshot IOM
         if (i == isnap)
             index = 1
+            index_b = 1
 
             for k=1:Npart 
                 xc, yc, zc = tab_r_in_HU[k, :]
@@ -336,21 +411,20 @@ function treat_data()
                 m = tab_m_in_HU[k]
                 phin = tab_pot_in_HU[k]
 
+                # Potential unit: kpc*pc/Myr^2
+                # Multiply by 1/kpc_per_HU 1/pc_per_HU Myr_per_HU^2 to get HU
+
+                factor_pot = (1.0/kpc_per_HU * 1.0/pc_per_HU * Myr_per_HU^2)
+
                 # Bulge
-                rc_HU = rc / kpc_per_HU
-                Mb_HU = Mb / Msun_per_HU
-                psib =  psi_bulge(r, rc_HU, Mb_HU)
+                psib = potential_bulge(r*kpc_per_HU) * factor_pot
 
                 # Disk
-                ad_HU = ad / kpc_per_HU
-                bd_HU = bd / pc_per_HU
-                Md_HU = Md / Msun_per_HU
-                psid = psi_disk(R, z, ad_HU, bd_HU, Md_HU)
+                psid = potential_disk(R*kpc_per_HU, z*kpc_per_HU) * factor_pot
 
                 # Halo
-                rs_HU = rs / kpc_per_HU
-                Mh_HU = Mh / Msun_per_HU
-                psih = psi_halo(r, rs_HU, Mh_HU)
+                psih = potential_halo(r*kpc_per_HU) * factor_pot
+
 
                 # Total galactic potential 
                 psi_gal = psib + psid + psih
@@ -376,8 +450,20 @@ function treat_data()
                 if (Ei_c >= 0.0)
                     tab_E_wrt_cluster_in_HU[index] = Ki + Ui
                     tab_Lz_wrt_cluster_in_HU[index] = Lzi
+                    tab_pos_unbound_in_HU[index, 1] = x
+                    tab_pos_unbound_in_HU[index, 2] = y
+                    tab_pos_unbound_in_HU[index, 3] = z
+
                     index += 1
+                else
+                    tab_pos_bound_in_HU[index_b, 1] = x
+                    tab_pos_bound_in_HU[index_b, 2] = y
+                    tab_pos_bound_in_HU[index_b, 3] = z
+                    tab_Eb_wrt_cluster_in_HU[index_b] = Ki + Ui
+                    tab_Lzb_wrt_cluster_in_HU[index_b] = Lzi
+                    index_b += 1
                 end
+                
 
             end
 
@@ -430,13 +516,12 @@ function treat_data()
     ###############################################
 
     # Total energy
-
     plt = plot(tab_time_in_HU .* Myr_per_HU, tab_E_in_HU, 
         labels=:false, 
         xlabel="Time [Myr]", 
         ylabel="Energy [HU]", 
-        xticks=0:200:5000,
-        xminorticks=4,
+        xticks=0:250:5000,
+        # xminorticks=4,
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
         frame=:box)
@@ -454,8 +539,8 @@ function treat_data()
         xlabel="Time [Myr]", 
         ylabel="Fractional energy", 
         yaxis=:log10,
-        xticks=0:200:5000,
-        xminorticks=4,
+        xticks=0:250:5000,
+        # xminorticks=4,
         yticks=10.0 .^ (-20:1:2),
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
@@ -470,10 +555,31 @@ function treat_data()
         labels=:false, 
         xlabel="Time [Myr]", 
         ylabel=L"L_z"*" [HU]", 
-        xticks=0:200:5000,
-        xminorticks=4,
+        xticks=0:250:5000,
+        # xminorticks=4,
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
+        frame=:box)
+
+    display(plt)
+    readline()
+
+    # Fractional angular momentum Lz
+    dataFracLz = abs.(1.0 .- tab_L_in_HU[2:end, 3] ./ tab_L_in_HU[1,3])
+    minLz = 10.0^floor(Int64, max(log10(minimum(dataFracLz)), -16))
+    maxLz = 10.0^(floor(Int64, log10(maximum(dataFracLz)))+1)
+
+    plt = plot(tab_time_in_HU[2:end] .* Myr_per_HU, dataFracLz, 
+        labels=:false, 
+        xlabel="Time [Myr]", 
+        ylabel="Fractional angular momentum", 
+        yaxis=:log10,
+        xticks=0:250:5000,
+        # xminorticks=4,
+        yticks=10.0 .^ (-20:1:2),
+        yminorticks=10,
+        xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
+        ylims=(minLz, maxLz),
         frame=:box)
 
     display(plt)
@@ -485,9 +591,9 @@ function treat_data()
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Distance to cluster [kpc]",
                 xlims=(tab_out_time_in_Myr[1], tab_out_time_in_Myr[end]),
-                xticks=0:200:5000,
+                xticks=0:250:5000,
                 ylims=(0.0, dmax),
-                xminorticks=4,
+                # xminorticks=4,
                 marker=true, markersize=2,
                 frame=:box)
 
@@ -499,8 +605,8 @@ function treat_data()
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Fraction of unbound stars [%]",
                 xlims=(data_global[2,1], data_global[end,1]) .* Myr_per_HU,
-                xticks=0:200:5000,
-                xminorticks=4,
+                xticks=0:250:5000,
+                # xminorticks=4,
                 yticks=0:10:100,
                 yminorticks=5,
                 frame=:box)
@@ -518,7 +624,7 @@ function treat_data()
     plot!(plt, data_lag[3:end,1] .* Myr_per_HU, data_lag[3:end,16] .* pc_per_HU, yaxis=:log10, label=L"r_{90}", legend=:topleft)
     plot!(plt, legend=:topleft, xlabel="Time [Myr]", ylabel="Radii [pc]", frame=:box)
     plot!(plt, yticks=10.0 .^ (-5:1:10), yminorticks=10)
-    plot!(plt, xticks=0:200:5000, xminorticks=4)
+    plot!(plt, xticks=0:250:5000)#, xminorticks=4)
     plot!(plt, xlims=(data_lag[3,1], data_lag[end,1]) .* Myr_per_HU)
 
     display(plt)
@@ -542,17 +648,66 @@ function treat_data()
     time_snapshot_in_Myr = tab_time_in_HU[isnap] .* Myr_per_HU
     time_snapshot_in_Myr = round(time_snapshot_in_Myr, digits=1) # Cutoff digits
 
-    s = 2.0
+    s = 1
+    rmax = 25 # kpc
 
-    plt = scatter(tabDeltaLz, tabDeltaE,
-                xlabel=L"\Delta L_z", ylabel=L"\Delta E", 
-                framestyle=:box, labels=:false, 
+    plt = scatter(tab_pos_unbound_in_HU[1:Nub, 1] .* kpc_per_HU,
+                tab_pos_unbound_in_HU[1:Nub, 2] .* kpc_per_HU,
+                tab_pos_unbound_in_HU[1:Nub, 3] .* kpc_per_HU,
+                xlims=(-rmax, rmax), ylims=(-rmax, rmax), zlims=(-rmax, rmax),
+                xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", zlabel=L"z"*" [kpc]", 
+                framestyle=:box, labels="Unbound",
                 aspect_ratio=1, size=(800,800), 
                 left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
                 background_color = :black,
                 markersize=s, color=:white, 
-                xticks=-3:0.5:3, yticks=-3:0.5:3,
+                markerstrokewidth = 0,
+                camera=(35, 10),
                 title="t = "*string(time_snapshot_in_Myr)*" Myr")
+
+    # scatter!(plt, tab_pos_bound_in_HU[1:Npart-Nub, 1] .* kpc_per_HU,
+    #             tab_pos_bound_in_HU[1:Npart-Nub, 2] .* kpc_per_HU,
+    #             tab_pos_bound_in_HU[1:Npart-Nub, 3] .* kpc_per_HU,
+    #             xlims=(-rmax, rmax), ylims=(-rmax, rmax), zlims=(-rmax, rmax),
+    #             xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", zlabel=L"z"*" [kpc]", 
+    #             framestyle=:box, labels="Bound",
+    #             aspect_ratio=1, size=(800,800), 
+    #             left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
+    #             background_color = :black,
+    #             markersize=4, color=:cyan, 
+    #             markerstrokewidth = 0,
+    #             camera=(35, 10),
+    #             title="t = "*string(time_snapshot_in_Myr)*" Myr")
+
+    scatter!(plt, [0], [0], [0], label=false, color=:red)
+
+    display(plt)
+    readline()
+
+    s = 2.0
+
+    plt = scatter(tabDeltaLz, tabDeltaE,
+    # plt = scatter(tab_Lz_wrt_cluster_in_HU[1:Nub], tab_E_wrt_cluster_in_HU[1:Nub],
+                xlabel=L"\Delta L_z", ylabel=L"\Delta E", 
+                framestyle=:box, labels="Unbound", 
+                markerstrokewidth = 0,
+                aspect_ratio=1, size=(800,800), 
+                left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
+                background_color = :black,
+                markersize=s, color=:white, 
+                # xticks=-3:0.5:3, yticks=-3:0.5:3,
+                title="t = "*string(time_snapshot_in_Myr)*" Myr")
+
+    # scatter!(plt, tab_Lzb_wrt_cluster_in_HU[1:Npart-Nub], tab_Eb_wrt_cluster_in_HU[1:Npart-Nub],
+    #             xlabel=L"\Delta L_z", ylabel=L"\Delta E", 
+    #             framestyle=:box, labels="bound", 
+    #             markerstrokewidth = 0,
+    #             aspect_ratio=1, size=(800,800), 
+    #             left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
+    #             background_color = :black,
+    #             markersize=s, color=:red, 
+    #             # xticks=-3:0.5:3, yticks=-3:0.5:3,
+    #             title="t = "*string(time_snapshot_in_Myr)*" Myr")
 
     display(plt)
     readline()
