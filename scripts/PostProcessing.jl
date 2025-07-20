@@ -182,14 +182,15 @@ function treat_data()
     data_lag = readdlm("path/to/data/lagr.7")
 
     list_files, nbt = get_list_files()
-    tab_Rc_Vc, tab_out_time_in_Myr, tab_Uhost_in_HU, tab_Kin_in_HU = get_cluster_position() # IN KPC AND KM/S !!!!
 
-    tab_dist_cluster_in_kpc = sqrt.(tab_Rc_Vc[:, 1] .^ 2 + tab_Rc_Vc[:, 2] .^ 2 + tab_Rc_Vc[:, 3] .^ 2)
-    tab_velocity_cluster_in_kms = sqrt.(tab_Rc_Vc[:, 4] .^ 2 + tab_Rc_Vc[:, 5] .^ 2 + tab_Rc_Vc[:, 6] .^ 2)
+    tab_Rc_Vc = zeros(Float64, nbt, 6)
+    tab_dist_cluster_in_kpc = zeros(Float64, nbt)
+    tab_velocity_cluster_in_kms = zeros(Float64, nbt)
 
     tab_time_in_HU = zeros(Float64, nbt)
     tab_E_in_HU = zeros(Float64, nbt)
     tab_L_in_HU = zeros(Float64, nbt, 3)
+    tab_virial_ratio = zeros(Float64, nbt)
 
     tab_lag_in_HU = zeros(Float64, nbt, 5)
     tab_frac_unbound = zeros(Float64, nbt)
@@ -227,6 +228,16 @@ function treat_data()
         vycl = data_info[17]
         vzcl = data_info[18] 
 
+        tab_Rc_Vc[i, 1] = xcl * kpc_per_HU
+        tab_Rc_Vc[i, 2] = ycl * kpc_per_HU
+        tab_Rc_Vc[i, 3] = zcl * kpc_per_HU
+        tab_Rc_Vc[i, 4] = vxcl * kms_per_HU
+        tab_Rc_Vc[i, 5] = vycl * kms_per_HU
+        tab_Rc_Vc[i, 6] = vzcl * kms_per_HU
+
+        tab_dist_cluster_in_kpc[i] = sqrt(xcl^2 + ycl^2 + zcl^2) .* kpc_per_HU
+        tab_velocity_cluster_in_kms[i] = sqrt(vxcl^2 + vycl^2 + vzcl^2) .* kms_per_HU
+
         # Read stellar data
         tab_time_in_HU[i] = data_info[1]
         r_dens_in_HU = data_info[5:7]
@@ -240,6 +251,8 @@ function treat_data()
         Untot = 0.0 # Nbody
         Uhtot = 0.0 # Host
         Ktot = 0.0
+
+        Ktot_c = 0.0
 
         Lxtot = 0.0
         Lytot = 0.0
@@ -297,10 +310,14 @@ function treat_data()
             Lytot += Lyi
             Lztot += Lzi
             
+            # Energy within the cluster frame 
+            Ui_c = Uni
+            Ki_c = 0.5 * m * (vxc^2 + vyc^2 + vzc^2)
+            Ei_c = Ki_c + Ui_c 
+            Ktot_c += Ki_c
+            
+            # Unbound particles at snapshot isnap
             if (i == isnap)
-                Ui_c = Uni
-                Ki_c = 0.5 * m * (vxc^2 + vyc^2 + vzc^2)
-                Ei_c = Ki_c + Ui_c 
                 if (Ei_c >= 0.0)
                     Nub += 1
                 end
@@ -312,6 +329,8 @@ function treat_data()
         Utot = 0.5 * Untot + Uhtot
         Etot = Ktot + Utot
         tab_E_in_HU[i] = Etot 
+
+        tab_virial_ratio[i] = 2*Ktot_c/abs(0.5 * Untot)
 
         tab_L_in_HU[i, 1] = Lxtot
         tab_L_in_HU[i, 2] = Lytot
@@ -393,13 +412,14 @@ function treat_data()
     # Save in HDF5 file
     ###############################################
 
-    mkpath("path/to/data/post_treatment")
+    mkpath("path/to/data/post_treatment/")
     namefile_hf5 = "path/to/data/post_treatment/iom_cluster.hf5"
     file = h5open(namefile_hf5, "w")
 
     write(file, "data_Etot_wrt_host", tab_E_in_HU)
-    write(file, "data_Rc", tab_Rc_Vc[:, 1:3])
-    write(file, "data_Vc", tab_Rc_Vc[:, 4:6])
+    write(file, "data_Rc_kpc", tab_Rc_Vc[:, 1:3])
+    write(file, "data_Vc_kms", tab_Rc_Vc[:, 4:6])
+    write(file, "data_virial_ratio_cluster", tab_virial_ratio)
 
     write(file, "data_time_HU", tab_time_in_HU)
     write(file, "data_time_Myr", tab_time_in_HU .* Myr_per_HU)
@@ -503,12 +523,28 @@ function treat_data()
     display(plt)
     readline()
 
+    # Virial ratio
+    plt = plot(tab_time_in_HU[1:end] .* Myr_per_HU, tab_virial_ratio, 
+        labels=:false, title="Virial ratio",
+        xlabel="Time [Myr]", 
+        ylabel=L"2 K/|U_{\mathrm{c}}|", 
+        yaxis=:log10,
+        # xticks=0:500:5000,
+        xminorticks=2,
+        yticks=10.0 .^ (-20:1:5),
+        yminorticks=10,
+        xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
+        frame=:box)
+
+    display(plt)
+    readline()
+
     # Distance to cluster
     dmax = maximum(tab_dist_cluster_in_kpc) * 1.1
-    plt = plot(tab_out_time_in_Myr, tab_dist_cluster_in_kpc,
+    plt = plot(tab_time_in_HU .* Myr_per_HU, tab_dist_cluster_in_kpc,
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Distance to cluster [kpc]",
-                xlims=(tab_out_time_in_Myr[1], tab_out_time_in_Myr[end]),
+                xlims=(tab_time_in_HU[1], tab_time_in_HU[end]) .* Myr_per_HU,
                 xticks=0:500:5000,
                 xminorticks=2,
                 ylims=(0.0, dmax),
@@ -520,10 +556,10 @@ function treat_data()
 
     # Velocity of the cluster
     dmax = maximum(tab_velocity_cluster_in_kms) * 1.1
-    plt = plot(tab_out_time_in_Myr, tab_velocity_cluster_in_kms,
+    plt = plot(tab_time_in_HU .* Myr_per_HU, tab_velocity_cluster_in_kms,
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Cluster velocity [km/s]",
-                xlims=(tab_out_time_in_Myr[1], tab_out_time_in_Myr[end]),
+                xlims=(tab_time_in_HU[1], tab_time_in_HU[end]) .* Myr_per_HU,
                 xticks=0:500:5000,
                 xminorticks=2,
                 ylims=(0.0, dmax),
