@@ -17,81 +17,14 @@ tabargs = ArgParseSettings()
 end
 
 parsed_args = parse_args(tabargs)
-
 const isnap = parsed_args["isnap"]
 
-
 const G_in_kpc_MSun_Myr = 4.49851e-12
-const Mtot = 1.0 # HU
-
-################################################################################################################
-# Read the cluster's position and velocity
-# Hack to read the position in the OUT file (since RG, VG are not saved anywhere else a priori ?)
-################################################################################################################
-
-# In kpc
-function get_cluster_position()
-
-    filename = "path/to/data/OUT"
-
-    # To extract numbers in scientific notation
-    # https://docs.julialang.org/en/v1/base/strings/#Base.Regex
-    # https://www.regular-expressions.info/floatingpoint.html
-    # [+-]? → [...] means “any character in the set”, ? means “zero or one”.
-    # \d → digit character.
-    # + → one or more.
-    # \. → escaped literal dot.
-    # [Ee] → matches E or e.
-    pattern = r"[+-]?\d+\.\d+[Ee][+-]?\d+"
-
-    nbt = 0
-    open(filename, "r") do io
-        while !eof(io)
-            line = readline(io)
-            # Look for the header line
-            if occursin("CLUSTER ORBIT", line)
-                nbt += 1
-            end
-        end
-    end
-
-    tab_out_time = zeros(Float64, nbt)
-    tab_Rc_Vc = zeros(Float64, nbt, 6)
-    tab_Uhost = zeros(Float64, nbt)
-
-    it = 1
-    open(filename, "r") do io
-        while !eof(io)
-            line = readline(io)
-            # Look for the header line
-            if occursin("CLUSTER ORBIT", line)
-
-                matches = collect(eachmatch(pattern, line))
-                numbers = parse.(Float64, [m.match for m in matches])
-
-                tab_out_time[it] = numbers[1]
-                tab_Rc_Vc[it, 1] = numbers[2]
-                tab_Rc_Vc[it, 2] = numbers[3]
-                tab_Rc_Vc[it, 3] = numbers[4]
-                tab_Rc_Vc[it, 4] = numbers[5]
-                tab_Rc_Vc[it, 5] = numbers[6]
-                tab_Rc_Vc[it, 6] = numbers[7]
-                tab_Uhost[it] = numbers[10] # HU
-
-                it += 1
-            end
-        end
-    end
-
-    return tab_Rc_Vc, tab_out_time, tab_Uhost
-
-end
 
 ################################################################################################################
 # MWPotential2014 (Bovy 2015)
 # https://ui.adsabs.harvard.edu/abs/2015ApJS..216...29B/abstract
 ################################################################################################################
-
 
 # Copy MWpotential.f file from NBODY6++GPU
 
@@ -116,7 +49,7 @@ const F_scale = 6.32793804994 # pc/Myr^2 : Force from the galaxy at R0=8 kpc
 # Forces
 
 # fpowercut.f
-# This returns gamma(a) * gammds(x, a) from nbody6++
+# This returns gamma(a) * gammad(x, a) from nbody6++
 function gamma_low(x::Float64, a::Float64)
 
     return gamma(a) - gamma(a, x)
@@ -127,7 +60,7 @@ function Menc_bulge(r::Float64)
 
     a = 1.5 - b_alpha/2.0
     xup = (r/b_rc)^2
-    ga = gamma_low(xup, a) # = gamma(a) * gammds(x, a)
+    ga = gamma_low(xup, a) # = gamma(a) * gammad(x, a)
     b_amp = 1.0 # G*M units
     menc = b_amp*2*pi*b_rc^(3-b_alpha)*ga
 
@@ -195,8 +128,8 @@ function potential_bulge(r::Float64, amp::Float64=b_amp)
     xup = (r/b_rc)^2.0
     a = 1.0 - 0.5*b_alpha
     a2 = 1.5 - 0.5*b_alpha
-    g1 = gamma_low(xup, a) # gammds(xup, a) * gamma(a)
-    g2 = gamma_low(xup, a2) # gammds(xup, a2) * gamma(a2)
+    g1 = gamma_low(xup, a) # gammad(xup, a) * gamma(a)
+    g2 = gamma_low(xup, a2) # gammad(xup, a2) * gamma(a2)
 
     pot = amp*2*pi*b_rc^(3.0-b_alpha)*(g1/b_rc-g2/r)
 
@@ -249,15 +182,15 @@ function treat_data()
     data_lag = readdlm("path/to/data/lagr.7")
 
     list_files, nbt = get_list_files()
-    tab_Rc_Vc, tab_out_time_in_Myr, tab_Uhost_in_HU = get_cluster_position() # IN KPC AND KM/S !!!!
+    tab_Rc_Vc, tab_out_time_in_Myr, tab_Uhost_in_HU, tab_Kin_in_HU = get_cluster_position() # IN KPC AND KM/S !!!!
 
     tab_dist_cluster_in_kpc = sqrt.(tab_Rc_Vc[:, 1] .^ 2 + tab_Rc_Vc[:, 2] .^ 2 + tab_Rc_Vc[:, 3] .^ 2)
+    tab_velocity_cluster_in_kms = sqrt.(tab_Rc_Vc[:, 4] .^ 2 + tab_Rc_Vc[:, 5] .^ 2 + tab_Rc_Vc[:, 6] .^ 2)
 
     tab_time_in_HU = zeros(Float64, nbt)
     tab_E_in_HU = zeros(Float64, nbt)
     tab_L_in_HU = zeros(Float64, nbt, 3)
 
-    tab_rcore_in_HU = zeros(Float64, nbt)
     tab_lag_in_HU = zeros(Float64, nbt, 5)
     tab_frac_unbound = zeros(Float64, nbt)
 
@@ -274,13 +207,10 @@ function treat_data()
     Npart = length(data0_star[:, 1])
 
     Nub = 0
-    tab_E_wrt_cluster_in_HU = zeros(Float64, Npart)
-    tab_Lz_wrt_cluster_in_HU = zeros(Float64, Npart)
-    tab_Eb_wrt_cluster_in_HU = zeros(Float64, Npart)
-    tab_Lzb_wrt_cluster_in_HU = zeros(Float64, Npart)
+    tab_E_wrt_cluster_in_kms = zeros(Float64, Npart)
+    tab_Lz_wrt_cluster_in_kpckms = zeros(Float64, Npart)
 
-    tab_pos_unbound_in_HU = zeros(Float64, Npart, 3)
-    tab_pos_bound_in_HU = zeros(Float64, Npart, 3)
+    tab_pos_unbound_in_kpc = zeros(Float64, Npart, 3)
 
     Threads.@threads for i=1:nbt
         namefile = list_files[i]
@@ -289,18 +219,17 @@ function treat_data()
         data_info = Float64.(data[1, :])
         data_star = Float64.(data[2:end, 1:8])
 
-        # Cluster's position (convert to HU)
-        xcl = tab_Rc_Vc[i, 1] / kpc_per_HU
-        ycl = tab_Rc_Vc[i, 2] / kpc_per_HU
-        zcl = tab_Rc_Vc[i, 3] / kpc_per_HU
-        vxcl = tab_Rc_Vc[i, 4] / kms_per_HU
-        vycl = tab_Rc_Vc[i, 5] / kms_per_HU
-        vzcl = tab_Rc_Vc[i, 6] / kms_per_HU
+        # Cluster's position (in HU)
+        xcl = data_info[13]
+        ycl = data_info[14]
+        zcl = data_info[15]
+        vxcl = data_info[16]
+        vycl = data_info[17]
+        vzcl = data_info[18] 
 
         # Read stellar data
         tab_time_in_HU[i] = data_info[1]
         r_dens_in_HU = data_info[5:7]
-        tab_rcore_in_HU[i] = data_info[10]
 
         # Read cluster information
         tab_m_in_HU = data_star[:, 1]
@@ -334,9 +263,8 @@ function treat_data()
 
             # Potential unit: kpc*pc/Myr^2
             # Multiply by 1/kpc_per_HU 1/pc_per_HU Myr_per_HU^2 to get HU
-
             factor_pot = (1.0/kpc_per_HU * 1.0/pc_per_HU * Myr_per_HU^2)
-            # println(factor_pot)
+
             # Bulge
             psib = potential_bulge(r*kpc_per_HU) * factor_pot
 
@@ -391,9 +319,9 @@ function treat_data()
 
 
         # Snapshot IOM
+        # Use specific IOMs (i.e. IOMs per unit mass)
         if (i == isnap)
             index = 1
-            index_b = 1
 
             for k=1:Npart 
                 xc, yc, zc = tab_r_in_HU[k, :]
@@ -408,12 +336,10 @@ function treat_data()
                 vy = vyc + vycl
                 vz = vzc + vzcl
 
-                m = tab_m_in_HU[k]
                 phin = tab_pot_in_HU[k]
 
                 # Potential unit: kpc*pc/Myr^2
                 # Multiply by 1/kpc_per_HU 1/pc_per_HU Myr_per_HU^2 to get HU
-
                 factor_pot = (1.0/kpc_per_HU * 1.0/pc_per_HU * Myr_per_HU^2)
 
                 # Bulge
@@ -430,38 +356,30 @@ function treat_data()
                 psi_gal = psib + psid + psih
 
                 # Potential energy of particle
-                Ui = m * (phin + psi_gal)
-                Utot += Ui 
+                Ui = (phin + psi_gal)
 
                 # Kinetic energy of particle
-                Ki = 0.5 * m * (vx^2 + vy^2 + vz^2)
-                Ktot += Ki 
+                Ki = 0.5 * (vx^2 + vy^2 + vz^2)
 
-                # Angular momentum
-                Lxi = m*(y*vz-z*vy)
-                Lyi = m*(z*vx-x*vz)
-                Lzi = m*(x*vy-y*vx) 
+                # (Specific) Angular momentum
+                Lzi_in_HU = (x*vy-y*vx) 
                 
-                
-                Ui_c = m * phin
-                Ki_c = 0.5 * m * (vxc^2 + vyc^2 + vzc^2)
+                Ui_c = phin
+                Ki_c = 0.5 * (vxc^2 + vyc^2 + vzc^2)
                 Ei_c = Ki_c + Ui_c 
-                    
+
+                Ei_in_HU = Ki + Ui
+
                 if (Ei_c >= 0.0)
-                    tab_E_wrt_cluster_in_HU[index] = Ki + Ui
-                    tab_Lz_wrt_cluster_in_HU[index] = Lzi
-                    tab_pos_unbound_in_HU[index, 1] = x
-                    tab_pos_unbound_in_HU[index, 2] = y
-                    tab_pos_unbound_in_HU[index, 3] = z
+
+                    # Convert to astrophysical units 
+                    tab_E_wrt_cluster_in_kms[index] = Ei_in_HU * (kms_per_HU)^2
+                    tab_Lz_wrt_cluster_in_kpckms[index] = Lzi_in_HU * kpc_per_HU * kms_per_HU
+                    tab_pos_unbound_in_kpc[index, 1] = x * kpc_per_HU
+                    tab_pos_unbound_in_kpc[index, 2] = y * kpc_per_HU
+                    tab_pos_unbound_in_kpc[index, 3] = z * kpc_per_HU
 
                     index += 1
-                else
-                    tab_pos_bound_in_HU[index_b, 1] = x
-                    tab_pos_bound_in_HU[index_b, 2] = y
-                    tab_pos_bound_in_HU[index_b, 3] = z
-                    tab_Eb_wrt_cluster_in_HU[index_b] = Ki + Ui
-                    tab_Lzb_wrt_cluster_in_HU[index_b] = Lzi
-                    index_b += 1
                 end
                 
 
@@ -520,8 +438,8 @@ function treat_data()
         labels=:false, 
         xlabel="Time [Myr]", 
         ylabel="Energy [HU]", 
-        xticks=0:250:5000,
-        # xminorticks=4,
+        xticks=0:500:5000,
+        xminorticks=2,
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
         frame=:box)
@@ -539,8 +457,8 @@ function treat_data()
         xlabel="Time [Myr]", 
         ylabel="Fractional energy", 
         yaxis=:log10,
-        xticks=0:250:5000,
-        # xminorticks=4,
+        xticks=0:500:5000,
+        xminorticks=2,
         yticks=10.0 .^ (-20:1:2),
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
@@ -555,8 +473,8 @@ function treat_data()
         labels=:false, 
         xlabel="Time [Myr]", 
         ylabel=L"L_z"*" [HU]", 
-        xticks=0:250:5000,
-        # xminorticks=4,
+        xticks=0:500:5000,
+        xminorticks=2,
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
         frame=:box)
@@ -574,8 +492,8 @@ function treat_data()
         xlabel="Time [Myr]", 
         ylabel="Fractional angular momentum", 
         yaxis=:log10,
-        xticks=0:250:5000,
-        # xminorticks=4,
+        xticks=0:500:5000,
+        xminorticks=2,
         yticks=10.0 .^ (-20:1:2),
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
@@ -591,9 +509,24 @@ function treat_data()
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Distance to cluster [kpc]",
                 xlims=(tab_out_time_in_Myr[1], tab_out_time_in_Myr[end]),
-                xticks=0:250:5000,
+                xticks=0:500:5000,
+                xminorticks=2,
                 ylims=(0.0, dmax),
-                # xminorticks=4,
+                marker=true, markersize=2,
+                frame=:box)
+
+    display(plt)
+    readline()
+
+    # Velocity of the cluster
+    dmax = maximum(tab_velocity_cluster_in_kms) * 1.1
+    plt = plot(tab_out_time_in_Myr, tab_velocity_cluster_in_kms,
+                labels=false,
+                xlabel="Time [Myr]", ylabel="Cluster velocity [km/s]",
+                xlims=(tab_out_time_in_Myr[1], tab_out_time_in_Myr[end]),
+                xticks=0:500:5000,
+                xminorticks=2,
+                ylims=(0.0, dmax),
                 marker=true, markersize=2,
                 frame=:box)
 
@@ -605,8 +538,8 @@ function treat_data()
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Fraction of unbound stars [%]",
                 xlims=(data_global[2,1], data_global[end,1]) .* Myr_per_HU,
-                xticks=0:250:5000,
-                # xminorticks=4,
+                xticks=0:500:5000,
+                xminorticks=2,
                 yticks=0:10:100,
                 yminorticks=5,
                 frame=:box)
@@ -624,7 +557,7 @@ function treat_data()
     plot!(plt, data_lag[3:end,1] .* Myr_per_HU, data_lag[3:end,16] .* pc_per_HU, yaxis=:log10, label=L"r_{90}", legend=:topleft)
     plot!(plt, legend=:topleft, xlabel="Time [Myr]", ylabel="Radii [pc]", frame=:box)
     plot!(plt, yticks=10.0 .^ (-5:1:10), yminorticks=10)
-    plot!(plt, xticks=0:250:5000)#, xminorticks=4)
+    plot!(plt, xticks=0:500:5000, xminorticks=2)
     plot!(plt, xlims=(data_lag[3,1], data_lag[end,1]) .* Myr_per_HU)
 
     display(plt)
@@ -632,18 +565,18 @@ function treat_data()
 
 
     # Snapshot IOM
-    meanE = mean(tab_E_wrt_cluster_in_HU[1:Nub])
-    varE = var(tab_E_wrt_cluster_in_HU[1:Nub], corrected=true, mean=meanE)
+    meanE = mean(tab_E_wrt_cluster_in_kms[1:Nub])
+    varE = var(tab_E_wrt_cluster_in_kms[1:Nub], corrected=true, mean=meanE)
     sigmaE = sqrt(varE)
-    tabDeltaE =  (tab_E_wrt_cluster_in_HU[1:Nub] .- meanE) ./ sigmaE
+    tabDeltaE =  (tab_E_wrt_cluster_in_kms[1:Nub] .- meanE) ./ sigmaE
 
-    meanLz = mean(tab_Lz_wrt_cluster_in_HU[1:Nub])
-    varLz = var(tab_Lz_wrt_cluster_in_HU[1:Nub], corrected=true, mean=meanLz)
+    meanLz = mean(tab_Lz_wrt_cluster_in_kpckms[1:Nub])
+    varLz = var(tab_Lz_wrt_cluster_in_kpckms[1:Nub], corrected=true, mean=meanLz)
     sigmaLz = sqrt(varLz)
-    tabDeltaLz =  (tab_Lz_wrt_cluster_in_HU[1:Nub] .- meanLz) ./ sigmaLz
+    tabDeltaLz =  (tab_Lz_wrt_cluster_in_kpckms[1:Nub] .- meanLz) ./ sigmaLz
 
-    println("<E>  [unbound, HU] = ", meanE)
-    println("<Lz> [unbound, HU] = ", meanLz)
+    println("<E>  [unbound, 10^4 (km/s)^2  ] = ", meanE/10^4)
+    println("<Lz> [unbound, 10^2 kpc (km/s)] = ", meanLz/10^2)
 
     time_snapshot_in_Myr = tab_time_in_HU[isnap] .* Myr_per_HU
     time_snapshot_in_Myr = round(time_snapshot_in_Myr, digits=1) # Cutoff digits
@@ -651,12 +584,12 @@ function treat_data()
     s = 1
     rmax = 25 # kpc
 
-    plt = scatter(tab_pos_unbound_in_HU[1:Nub, 1] .* kpc_per_HU,
-                tab_pos_unbound_in_HU[1:Nub, 2] .* kpc_per_HU,
-                tab_pos_unbound_in_HU[1:Nub, 3] .* kpc_per_HU,
+    plt = scatter(tab_pos_unbound_in_kpc[1:Nub, 1],
+                tab_pos_unbound_in_kpc[1:Nub, 2],
+                tab_pos_unbound_in_kpc[1:Nub, 3],
                 xlims=(-rmax, rmax), ylims=(-rmax, rmax), zlims=(-rmax, rmax),
                 xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", zlabel=L"z"*" [kpc]", 
-                framestyle=:box, labels="Unbound",
+                framestyle=:box, labels=false,
                 aspect_ratio=1, size=(800,800), 
                 left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
                 background_color = :black,
@@ -665,20 +598,6 @@ function treat_data()
                 camera=(35, 10),
                 title="t = "*string(time_snapshot_in_Myr)*" Myr")
 
-    # scatter!(plt, tab_pos_bound_in_HU[1:Npart-Nub, 1] .* kpc_per_HU,
-    #             tab_pos_bound_in_HU[1:Npart-Nub, 2] .* kpc_per_HU,
-    #             tab_pos_bound_in_HU[1:Npart-Nub, 3] .* kpc_per_HU,
-    #             xlims=(-rmax, rmax), ylims=(-rmax, rmax), zlims=(-rmax, rmax),
-    #             xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", zlabel=L"z"*" [kpc]", 
-    #             framestyle=:box, labels="Bound",
-    #             aspect_ratio=1, size=(800,800), 
-    #             left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
-    #             background_color = :black,
-    #             markersize=4, color=:cyan, 
-    #             markerstrokewidth = 0,
-    #             camera=(35, 10),
-    #             title="t = "*string(time_snapshot_in_Myr)*" Myr")
-
     scatter!(plt, [0], [0], [0], label=false, color=:red)
 
     display(plt)
@@ -686,28 +605,17 @@ function treat_data()
 
     s = 2.0
 
-    plt = scatter(tabDeltaLz, tabDeltaE,
-    # plt = scatter(tab_Lz_wrt_cluster_in_HU[1:Nub], tab_E_wrt_cluster_in_HU[1:Nub],
-                xlabel=L"\Delta L_z", ylabel=L"\Delta E", 
-                framestyle=:box, labels="Unbound", 
+    plt = scatter(tab_Lz_wrt_cluster_in_kpckms[1:Nub] ./ 10^2, tab_E_wrt_cluster_in_kms[1:Nub] ./ 10^4,
+                xlabel=L"L_z \ [10^2 \ \mathrm{kpc}\ \mathrm{km}/\mathrm{s}]", ylabel=L"E \ [10^4 \ (\mathrm{km}/\mathrm{s})^2]", 
+                framestyle=:box, labels=false, 
                 markerstrokewidth = 0,
-                aspect_ratio=1, size=(800,800), 
+                # aspect_ratio=1, 
+                size=(800,800), 
                 left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
                 background_color = :black,
                 markersize=s, color=:white, 
                 # xticks=-3:0.5:3, yticks=-3:0.5:3,
                 title="t = "*string(time_snapshot_in_Myr)*" Myr")
-
-    # scatter!(plt, tab_Lzb_wrt_cluster_in_HU[1:Npart-Nub], tab_Eb_wrt_cluster_in_HU[1:Npart-Nub],
-    #             xlabel=L"\Delta L_z", ylabel=L"\Delta E", 
-    #             framestyle=:box, labels="bound", 
-    #             markerstrokewidth = 0,
-    #             aspect_ratio=1, size=(800,800), 
-    #             left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
-    #             background_color = :black,
-    #             markersize=s, color=:red, 
-    #             # xticks=-3:0.5:3, yticks=-3:0.5:3,
-    #             title="t = "*string(time_snapshot_in_Myr)*" Myr")
 
     display(plt)
     readline()

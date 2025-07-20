@@ -24,66 +24,6 @@ const framepersec = parsed_args["framerate"]
 const GALACTIC_FRAME = parsed_args["galactic_frame"]
 
 ################################################################################################################
-# Read the cluster's position and velocity
-# Hack to read the position in the OUT file (since RG, VG are not saved anywhere else a priori ?)
-################################################################################################################
-
-# In kpc
-function get_cluster_position()
-
-    filename = "path/to/data/OUT"
-
-    # To extract numbers in scientific notation
-    # https://docs.julialang.org/en/v1/base/strings/#Base.Regex
-    # https://www.regular-expressions.info/floatingpoint.html
-    # [+-]? → [...] means “any character in the set”, ? means “zero or one”.
-    # \d → digit character.
-    # + → one or more.
-    # \. → escaped literal dot.
-    # [Ee] → matches E or e.
-    pattern = r"[+-]?\d+\.\d+[Ee][+-]?\d+"
-
-    nbt = 0
-    open(filename, "r") do io
-        while !eof(io)
-            line = readline(io)
-            # Look for the header line
-            if occursin("CLUSTER ORBIT", line)
-                nbt += 1
-            end
-        end
-    end
-
-
-    tab_Rc_Vc = zeros(Float64, nbt, 6)
-
-    it = 1
-    open(filename, "r") do io
-        while !eof(io)
-            line = readline(io)
-            # Look for the header line
-            if occursin("CLUSTER ORBIT", line)
-
-                matches = collect(eachmatch(pattern, line))
-                numbers = parse.(Float64, [m.match for m in matches])
-
-                tab_Rc_Vc[it, 1] = numbers[2]
-                tab_Rc_Vc[it, 2] = numbers[3]
-                tab_Rc_Vc[it, 3] = numbers[4]
-                tab_Rc_Vc[it, 4] = numbers[5]
-                tab_Rc_Vc[it, 5] = numbers[6]
-                tab_Rc_Vc[it, 6] = numbers[7]
-
-                it += 1
-            end
-        end
-    end
-
-    return tab_Rc_Vc
-
-end
-
-################################################################################################################
 # Read the run's information
 # Switch back to galactocentric frame if needed
 ################################################################################################################
@@ -108,7 +48,34 @@ end
 function plot_data()
 
     list_files, nbt = get_list_files()
-    tab_Rc_Vc = get_cluster_position()
+    tab_Rc_Vc = zeros(Float64, nbt, 6)
+
+    Threads.@threads for i=1:nbt
+        namefile = list_files[i]
+        data = readdlm(namefile)
+        data_info = Float64.(data[1,:])
+
+        pc_per_HU = data_info[2]
+        kpc_per_HU = pc_per_HU/1000.0
+        kms_per_HU = data_info[9]
+
+        # Cluster's position (in HU)
+        xcl = data_info[13]
+        ycl = data_info[14]
+        zcl = data_info[15]
+        vxcl = data_info[16]
+        vycl = data_info[17]
+        vzcl = data_info[18] 
+
+        tab_Rc_Vc[i, 1] = xcl * kpc_per_HU
+        tab_Rc_Vc[i, 2] = ycl * kpc_per_HU
+        tab_Rc_Vc[i, 3] = zcl * kpc_per_HU
+
+        tab_Rc_Vc[i, 4] = vxcl * kpc_per_HU
+        tab_Rc_Vc[i, 5] = vycl * kpc_per_HU
+        tab_Rc_Vc[i, 6] = vzcl * kpc_per_HU
+
+    end
 
     rmax = 25.0 # kpc
 
