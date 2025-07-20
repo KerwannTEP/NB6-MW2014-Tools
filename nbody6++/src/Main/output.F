@@ -19,12 +19,10 @@
 *      COMMON/NNBCOT/  nnbave
       REAL*8  X1(3,4),V1(3,4),UI(4),VI(4),XREL2(3),VREL2(3)
       REAL*8  XI(3), XDOTI(3), UH, UHI, KIN, KINI
-      REAL*4  XS(3,NMAX),VS(3,NMAX),BODYS(NMAX),RHOS(NMAX),AS(20)
-      REAL*8  AD(26), XNDB(NMAX),PHIDB(NMAX)
-      REAL*8  XDB(3,NMAX),VDB(3,NMAX),BODYDB(NMAX),RHODB(NMAX)
+      REAL*8  XS(3,NMAX),VS(3,NMAX),BODYS(NMAX),RHOS(NMAX),AS(26)
 
-      REAL*4  XJ(3,6),VJ(3,6),BODYJ(6)
-      REAL*4  XNS(NMAX),PHI(NMAX)
+      REAL*8  XJ(3,6),VJ(3,6),BODYJ(6)
+      REAL*8  XNS(NMAX),PHI(NMAX)
       CHARACTER*27 OUTFILE
       CHARACTER*27 OUTTAIL
       CHARACTER*20 TCHAR
@@ -376,19 +374,13 @@ c$$$              END IF
 
 *       Convert masses, coordinates & velocities to single precision.
       DO 90 I = 1,NTOT
-          BODYS(I) = REAL(BODY(I))
-          RHOS(I) = REAL(RHO(I))
-          XNS(I) = REAL(XNDBL(I))
-          PHI(I) = REAL(-PHIDBL(I))
-          BODYDB(I) = DBLE(BODY(I))
-          RHODB(I) = DBLE(RHO(I))
-          XNDB(I) = DBLE(XNDBL(I))
-          PHIDB(I) = DBLE(-PHIDBL(I))
+          BODYS(I) = DBLE(BODY(I))
+          RHOS(I) = DBLE(RHO(I))
+          XNS(I) = DBLE(XNDBL(I))
+          PHI(I) = DBLE(-PHIDBL(I))
           DO 85 K = 1,3
-              XS(K,I) = REAL(X(K,I))
-              VS(K,I) = REAL(XDOT(K,I))
-              XDB(K,I) = DBLE(X(K,I))
-              VDB(K,I) = DBLE(XDOT(K,I))
+              XS(K,I) = DBLE(X(K,I))
+              VS(K,I) = DBLE(XDOT(K,I))
    85     CONTINUE
    90 CONTINUE
 *
@@ -415,23 +407,23 @@ c$$$              END IF
 *     Distinguish netween quartet and quintet.
                IF (NAME(J2).LE.NZERO) THEN
                   IF (JG.LE.N) THEN
-                     BODYS(JG) = REAL(CM(2,IM))
-                     BODYS(J1) = REAL(CM(1,IM2))
-                     BODYS(JG2) = REAL(CM(2,IM2))
+                     BODYS(JG) = DBLE(CM(2,IM))
+                     BODYS(J1) = DBLE(CM(1,IM2))
+                     BODYS(JG2) = DBLE(CM(2,IM2))  
                   ELSE
                      JP = JG - N
-                     BODYS(2*JP-1) = REAL(CM(3,IM))
-                     BODYS(2*JP) = REAL(CM(4,IM))
-                     BODYS(JG2) = REAL(CM(2,IM2))
+                     BODYS(2*JP-1) = DBLE(CM(3,IM))
+                     BODYS(2*JP) = DBLE(CM(4,IM))
+                     BODYS(JG2) = DBLE(CM(2,IM2))
                   END IF
                ELSE
                   IF (JG.LE.N) THEN
-                     BODYS(JG) = REAL(CM(2,IM))
-                     BODYS(JG2) = REAL(CM(2,IM2))
+                     BODYS(JG) = DBLE(CM(2,IM))
+                     BODYS(JG2) = DBLE(CM(2,IM2))
                   ELSE
                      JP = JG - N
-                     BODYS(2*JP-1) = REAL(CM(3,IM2))
-                     BODYS(2*JP) = REAL(CM(4,IM2))
+                     BODYS(2*JP-1) = DBLE(CM(3,IM2))
+                     BODYS(2*JP) = DBLE(CM(4,IM2))
                   END IF
                END IF
                GO TO 95
@@ -440,9 +432,9 @@ c$$$              END IF
             CALL FINDJ(J1,J,IM)
 *     Note: J is ghost index and IM is merger index.
             IF (J.LE.0) GO TO 95
-            BODYS(J1) = REAL(CM(1,IM))
-            BODYS(J) = REAL(CM(2,IM))
-            ZMB = REAL(CM(1,IM) + CM(2,IM))
+            BODYS(J1) = DBLE(CM(1,IM))
+            BODYS(J) = DBLE(CM(2,IM))
+            ZMB = DBLE(CM(1,IM) + CM(2,IM))
 *     Form global coordinates and velocities from c.m. with XREL & VREL.
             DO K = 1,3
                X1(K,1) = X(K,J1) + CM(2,IM)*XREL(K,IM)/ZMB
@@ -450,10 +442,10 @@ c$$$              END IF
                V1(K,1) = XDOT(K,J1) + CM(2,IM)*VREL(K,IM)/ZMB
                V1(K,2) = XDOT(K,J1) - CM(1,IM)*VREL(K,IM)/ZMB
 *     
-               XS(K,J1) = REAL(X1(K,1))
-               XS(K,J)  = REAL(X1(K,2))
-               VS(K,J1) = REAL(V1(K,1))
-               VS(K,J)  = REAL(V1(K,2))
+               XS(K,J1) = DBLE(X1(K,1))
+               XS(K,J)  = DBLE(X1(K,2))
+               VS(K,J1) = DBLE(V1(K,1))
+               VS(K,J)  = DBLE(V1(K,2))
             END DO
 *     Look for ghosts of possible second (i.e. outer) merged binary.
 c$$$            if(rank.eq.0)print*,' after findj t,j1,j2,jpair,j,im=',j1,
@@ -467,10 +459,11 @@ c$$$     &           nmerge,name(j1),name(j2),name(icm)
                IPAIR = ICM2 - N
                I1 = 2*IPAIR - 1
                I2 = I1 + 1
-               BODYS(I1) = REAL(CM(3,IM))
-               BODYS(I2) = REAL(CM(4,IM))
-               BODYS(J2) = REAL(CM(2,IM))
-               BODYS(J) = REAL(CM(3,IM) + CM(4,IM))
+               BODYS(I1) = DBLE(CM(3,IM))
+               BODYS(I2) = DBLE(CM(4,IM))
+               BODYS(J2) = DBLE(CM(2,IM))
+               BODYS(J) = DBLE(CM(3,IM) + CM(4,IM))
+
 *     Copy KS variables to local scalars.
                DO K = 1,4
                   UI(K) = U(K,IPAIR)
@@ -486,12 +479,13 @@ c$$$     &           nmerge,name(j1),name(j2),name(icm)
                   V1(K,3) = XDOT(K,J2) + CM(4,IM)*VREL2(K)/ZM
                   V1(K,4) = XDOT(K,J2) - CM(3,IM)*VREL2(K)/ZM
 *     
-                  XS(K,I1) = REAL(X1(K,3))
-                  XS(K,I2)  = REAL(X1(K,4))
-                  VS(K,I1) = REAL(V1(K,3))
-                  VS(K,I2)  = REAL(V1(K,4))
-                  XS(K,ICM2) = REAL(X(K,J2))
-                  VS(K,ICM2) = REAL(XDOT(K,J2))
+                  XS(K,I1) = DBLE(X1(K,3))
+                  XS(K,I2)  = DBLE(X1(K,4))
+                  VS(K,I1) = DBLE(V1(K,3))
+                  VS(K,I2)  = DBLE(V1(K,4))
+                  XS(K,ICM2) = DBLE(X(K,J2))
+                  VS(K,ICM2) = DBLE(XDOT(K,J2))
+
                END DO
             END IF
          END IF
@@ -503,40 +497,41 @@ c$$$     &           nmerge,name(j1),name(j2),name(icm)
           DO 98 L = 1,NCH
 *       Copy global address from common JLIST (set in CHDATA).
               J = JLIST(L)
-              BODYS(J) = REAL(BODYJ(L))
+              BODYS(J) = DBLE(BODYJ(L))
               DO 97 K = 1,3
-                  XS(K,J) = REAL(XJ(K,L))
-                  VS(K,J) = REAL(VJ(K,L))
+                  XS(K,J) = DBLE(XJ(K,L))
+                  VS(K,J) = DBLE(VJ(K,L))
+
    97         CONTINUE
    98     CONTINUE
       END IF
 *
-          AD(1) = DBLE(TTOT)
-          AD(2) = DBLE(FLOAT(NPAIRS))
-          AD(3) = DBLE(RBAR)
-          AD(4) = DBLE(ZMBAR)
-          AD(5) = DBLE(RTIDE)
-          AD(6) = DBLE(TIDAL(4))
-          AD(7) = DBLE(RDENS(1))
-          AD(8) = DBLE(RDENS(2))
-          AD(9) = DBLE(RDENS(3))
-          AD(10) = DBLE(TTOT/TCR0)
-          AD(11) = DBLE(TSCALE)
-          AD(12) = DBLE(VSTAR)
-          AD(13) = DBLE(RC)
-          AD(14) = DBLE(NC)
-          AD(15) = DBLE(VC)
-          AD(16) = DBLE(RHOM)
-          AD(17) = DBLE(CMAX)
-          AD(18) = DBLE(RSCALE)
-          AD(19) = DBLE(RSMIN)
-          AD(20) = DBLE(DMIN1)
-          AD(21) = DBLE(RG(1))
-          AD(22) = DBLE(RG(2))
-          AD(23) = DBLE(RG(3))
-          AD(24) = DBLE(VG(1))
-          AD(25) = DBLE(VG(2))
-          AD(26) = DBLE(VG(3))
+          AS(1) = DBLE(TTOT)
+          AS(2) = DBLE(FLOAT(NPAIRS))
+          AS(3) = DBLE(RBAR)
+          AS(4) = DBLE(ZMBAR)
+          AS(5) = DBLE(RTIDE)
+          AS(6) = DBLE(TIDAL(4))
+          AS(7) = DBLE(RDENS(1))
+          AS(8) = DBLE(RDENS(2))
+          AS(9) = DBLE(RDENS(3))
+          AS(10) = DBLE(TTOT/TCR0)
+          AS(11) = DBLE(TSCALE)
+          AS(12) = DBLE(VSTAR)
+          AS(13) = DBLE(RC)
+          AS(14) = DBLE(NC)
+          AS(15) = DBLE(VC)
+          AS(16) = DBLE(RHOM)
+          AS(17) = DBLE(CMAX)
+          AS(18) = DBLE(RSCALE)
+          AS(19) = DBLE(RSMIN)
+          AS(20) = DBLE(DMIN1)
+          AS(21) = DBLE(RG(1))
+          AS(22) = DBLE(RG(2))
+          AS(23) = DBLE(RG(3))
+          AS(24) = DBLE(VG(1))
+          AS(25) = DBLE(VG(2))
+          AS(26) = DBLE(VG(3))
           NK = 26
 *
 *        Write all data in binary format on unit 3 = conf.3.
@@ -556,16 +551,16 @@ c$$$     &           nmerge,name(j1),name(j2),name(icm)
          OPEN (UNIT=3,STATUS='UNKNOWN',FORM='UNFORMATTED',FILE=OUTFILE)
          
          WRITE (3)  NTOT, MODEL, NRUN, NK
-         WRITE (3)  (AD(K),K=1,NK),
+         WRITE (3)  (AS(K),K=1,NK),
 C         DO J = 1, NTOT
 C            WRITE (3,*) BODYS(J)*ZMBAR,XS(1:3,J)*RBAR,VS(1:3,J)*VSTAR,
 C     &           NAME(J)
 C         END DO
-     &         (BODYDB(J),J=1,NTOT),(RHODB(J),J=1,NTOT),
-     &         (XNDB(J),J=1,NTOT),
-     &         ((XDB(K,J),K=1,3),J=1,NTOT), 
-     &         ((VDB(K,J),K=1,3),J=1,NTOT),
-     &         (PHIDB(J),J=1,NTOT),(NAME(J),J=1,NTOT)
+     &         (BODYS(J),J=1,NTOT),(RHOS(J),J=1,NTOT),
+     &         (XNS(J),J=1,NTOT),
+     &         ((XS(K,J),K=1,3),J=1,NTOT), 
+     &         ((VS(K,J),K=1,3),J=1,NTOT),
+     &         (PHI(J),J=1,NTOT),(NAME(J),J=1,NTOT)
          CLOSE(3)
 
 *     Tidal tail data
@@ -578,24 +573,24 @@ C         END DO
             WRITE (5) NTAIL, MODEL, NK
 *     Include cluster centre just in case.
             DO K = 1,3
-               AS(K) = REAL(RG(K))
-               AS(K+3) = REAL(VG(K))
-               AS(K+6) = REAL(RDENS(K))
+               AS(K) = DBLE(RG(K))
+               AS(K+3) = DBLE(VG(K))
+               AS(K+6) = DBLE(RDENS(K))
             END DO
-            AS(10) = REAL(TTOT)
-            AS(11) = REAL(RBAR)
-            AS(12) = REAL(TSTAR)
-            AS(13) = REAL(VSTAR)
+            AS(10) = DBLE(TTOT)
+            AS(11) = DBLE(RBAR)
+            AS(12) = DBLE(TSTAR)
+            AS(13) = DBLE(VSTAR)
             NK = 13
             WRITE (5)  (AS(K),K=1,NK)
             
             IF (NTAIL.GT.0) THEN
 *     Individual stars
                DO I = ITAIL0,NTTOT
-                  BODYS(I) = REAL(BODY(I))
+                  BODYS(I) = DBLE(BODY(I))
                   DO K = 1,3
-                     XS(K,I) = REAL(X(K,I) - RG(K))
-                     VS(K,I) = REAL(XDOT(K,I) - VG(K))
+                     XS(K,I) = DBLE(X(K,I) - RG(K))
+                     VS(K,I) = DBLE(XDOT(K,I) - VG(K))
                   END DO
                   WRITE (5) NAME(I),BODYS(I),XS(1:3,I),VS(1:3,I)
                END DO
