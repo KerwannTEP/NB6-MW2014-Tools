@@ -18,8 +18,11 @@
       COMMON/POTDEN/  RHO(NMAX),XNDBL(NMAX),PHIDBL(NMAX)
 *      COMMON/NNBCOT/  nnbave
       REAL*8  X1(3,4),V1(3,4),UI(4),VI(4),XREL2(3),VREL2(3)
-      REAL*8  XI(3), UH, UHI
+      REAL*8  XI(3), XDOTI(3), UH, UHI, KIN, KINI
       REAL*4  XS(3,NMAX),VS(3,NMAX),BODYS(NMAX),RHOS(NMAX),AS(20)
+      REAL*8  AD(26), XNDB(NMAX),PHIDB(NMAX)
+      REAL*8  XDB(3,NMAX),VDB(3,NMAX),BODYDB(NMAX),RHODB(NMAX)
+
       REAL*4  XJ(3,6),VJ(3,6),BODYJ(6)
       REAL*4  XNS(NMAX),PHI(NMAX)
       CHARACTER*27 OUTFILE
@@ -258,21 +261,25 @@
           GZ = RG(1)*VG(2) - RG(2)*VG(1)
           SX = RBAR/1000.0
 
-*     Compute potential energy from the host (N-body units)
+*     Compute host potential energy and total kinetic energy (N-body units)
       UH = 0.0D0
+      KIN = 0.0D0
       IF (KZ(14).EQ.5) THEN
          DO I = 1,N
             UHI = 0.0D0
             XI = (X(1:3,I) + RG)
+            XDOTI = (XDOT(1:3,I) + VG)
+            KINI = 0.5*BODY(I)*(XDOTI(1)**2+XDOTI(2)**2+XDOTI(3)**2)
             call pmwpot(XI,UHI)
             UH = UH + BODY(I)*UHI
+            KIN = KIN + KINI
          END DO
       END IF
 
           WRITE (6,78)  TTOT*TSTAR,(RG(K)*SX,K=1,3), 
-     &         (VG(K)*VSTAR,K=1,3),GZ, ETIDE, UH
-   78     FORMAT (/,5X,'CLUSTER ORBIT   T RG VG JZ ET POTH ',
-     &         1P,10E24.15,0P)
+     &         (VG(K)*VSTAR,K=1,3),GZ, ETIDE, UH, KIN
+   78     FORMAT (/,5X,'CLUSTER ORBIT   T RG VG JZ ET POTH KIN ',
+     &         1P,11E24.15,0P)
       END IF
       IF (KZ(14).GE.3.AND.(MP.GT.0.0D0)) THEN 
           WRITE (6,79)  TTOT, N, RSCALE, ZMASS, MP, DETOT
@@ -373,9 +380,15 @@ c$$$              END IF
           RHOS(I) = REAL(RHO(I))
           XNS(I) = REAL(XNDBL(I))
           PHI(I) = REAL(-PHIDBL(I))
+          BODYDB(I) = DBLE(BODY(I))
+          RHODB(I) = DBLE(RHO(I))
+          XNDB(I) = DBLE(XNDBL(I))
+          PHIDB(I) = DBLE(-PHIDBL(I))
           DO 85 K = 1,3
               XS(K,I) = REAL(X(K,I))
               VS(K,I) = REAL(XDOT(K,I))
+              XDB(K,I) = DBLE(X(K,I))
+              VDB(K,I) = DBLE(XDOT(K,I))
    85     CONTINUE
    90 CONTINUE
 *
@@ -498,27 +511,33 @@ c$$$     &           nmerge,name(j1),name(j2),name(icm)
    98     CONTINUE
       END IF
 *
-          AS(1) = REAL(TTOT)
-          AS(2) = REAL(FLOAT(NPAIRS))
-          AS(3) = REAL(RBAR)
-          AS(4) = REAL(ZMBAR)
-          AS(5) = REAL(RTIDE)
-          AS(6) = REAL(TIDAL(4))
-          AS(7) = REAL(RDENS(1))
-          AS(8) = REAL(RDENS(2))
-          AS(9) = REAL(RDENS(3))
-          AS(10) = REAL(TTOT/TCR0)
-          AS(11) = REAL(TSCALE)
-          AS(12) = REAL(VSTAR)
-          AS(13) = REAL(RC)
-          AS(14) = REAL(NC)
-          AS(15) = REAL(VC)
-          AS(16) = REAL(RHOM)
-          AS(17) = REAL(CMAX)
-          AS(18) = REAL(RSCALE)
-          AS(19) = REAL(RSMIN)
-          AS(20) = REAL(DMIN1)
-          NK = 20
+          AD(1) = DBLE(TTOT)
+          AD(2) = DBLE(FLOAT(NPAIRS))
+          AD(3) = DBLE(RBAR)
+          AD(4) = DBLE(ZMBAR)
+          AD(5) = DBLE(RTIDE)
+          AD(6) = DBLE(TIDAL(4))
+          AD(7) = DBLE(RDENS(1))
+          AD(8) = DBLE(RDENS(2))
+          AD(9) = DBLE(RDENS(3))
+          AD(10) = DBLE(TTOT/TCR0)
+          AD(11) = DBLE(TSCALE)
+          AD(12) = DBLE(VSTAR)
+          AD(13) = DBLE(RC)
+          AD(14) = DBLE(NC)
+          AD(15) = DBLE(VC)
+          AD(16) = DBLE(RHOM)
+          AD(17) = DBLE(CMAX)
+          AD(18) = DBLE(RSCALE)
+          AD(19) = DBLE(RSMIN)
+          AD(20) = DBLE(DMIN1)
+          AD(21) = DBLE(RG(1))
+          AD(22) = DBLE(RG(2))
+          AD(23) = DBLE(RG(3))
+          AD(24) = DBLE(VG(1))
+          AD(25) = DBLE(VG(2))
+          AD(26) = DBLE(VG(3))
+          NK = 26
 *
 *        Write all data in binary format on unit 3 = conf.3.
 *
@@ -537,14 +556,16 @@ c$$$     &           nmerge,name(j1),name(j2),name(icm)
          OPEN (UNIT=3,STATUS='UNKNOWN',FORM='UNFORMATTED',FILE=OUTFILE)
          
          WRITE (3)  NTOT, MODEL, NRUN, NK
-         WRITE (3)  (AS(K),K=1,NK),
+         WRITE (3)  (AD(K),K=1,NK),
 C         DO J = 1, NTOT
 C            WRITE (3,*) BODYS(J)*ZMBAR,XS(1:3,J)*RBAR,VS(1:3,J)*VSTAR,
 C     &           NAME(J)
 C         END DO
-     &         (BODYS(J),J=1,NTOT),(RHOS(J),J=1,NTOT),(XNS(J),J=1,NTOT),
-     &         ((XS(K,J),K=1,3),J=1,NTOT), ((VS(K,J),K=1,3),J=1,NTOT),
-     &         (PHI(J),J=1,NTOT),(NAME(J),J=1,NTOT)
+     &         (BODYDB(J),J=1,NTOT),(RHODB(J),J=1,NTOT),
+     &         (XNDB(J),J=1,NTOT),
+     &         ((XDB(K,J),K=1,3),J=1,NTOT), 
+     &         ((VDB(K,J),K=1,3),J=1,NTOT),
+     &         (PHIDB(J),J=1,NTOT),(NAME(J),J=1,NTOT)
          CLOSE(3)
 
 *     Tidal tail data

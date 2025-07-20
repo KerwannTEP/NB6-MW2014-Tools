@@ -18,7 +18,7 @@ snap_last = args.snap_last
 def read_file(name_old,name_new):
     f = FortranFile(name_old,"r")
     data_int = f.read_record(np.int32)
-    data_float = f.read_record(np.float32)
+    data_float = f.read_record(np.float64)
 
     Npart = data_int[0] # NTOT
 
@@ -32,15 +32,16 @@ def read_file(name_old,name_new):
     r_core = data_float[12:13] #  RC
     n_core = data_float[13:14] # NC [number of stars inside r_core]
     v_core = data_float[14:15] # VC [rms velocity inside r_core]
-
+    r_cluster = data_float[20:23] # RG(1:3)
+    v_cluster = data_float[23:26] # VG(1:3)
     # These conversions are in the correct order (they have been tested)
 
-    tab_mass = data_float[0*Npart+20:1*Npart+20].reshape(Npart,1)
-    tab_r = data_float[3*Npart+20:6*Npart+20].reshape(Npart,3)
-    tab_v = data_float[6*Npart+20:9*Npart+20].reshape(Npart,3)
-    tab_pot = data_float[9*Npart+20:10*Npart+20].reshape(Npart,1)
+    tab_mass = data_float[0*Npart+26:1*Npart+26].reshape(Npart,1)
+    tab_r = data_float[3*Npart+26:6*Npart+26].reshape(Npart,3)
+    tab_v = data_float[6*Npart+26:9*Npart+26].reshape(Npart,3)
+    tab_pot = data_float[9*Npart+26:10*Npart+26].reshape(Npart,1)
 
-    whead = np.array([time.T[0], pc_per_HU.T[0], Msun_per_HU.T[0], r_tidal.T[0], r_dens.T[0], r_dens.T[1], r_dens.T[2], Myr_per_HU.T[0], kms_per_HU.T[0], r_core.T[0], n_core.T[0], v_core.T[0]])
+    whead = np.array([time.T[0], pc_per_HU.T[0], Msun_per_HU.T[0], r_tidal.T[0], r_dens.T[0], r_dens.T[1], r_dens.T[2], Myr_per_HU.T[0], kms_per_HU.T[0], r_core.T[0], n_core.T[0], v_core.T[0], r_cluster.T[0], r_cluster.T[1], r_cluster.T[2], v_cluster.T[0], v_cluster.T[1], v_cluster.T[2]])
     w = np.array([tab_mass.T[0], tab_r[:,0].T, tab_r[:,1].T, tab_r[:,2].T, tab_v[:,0].T, tab_v[:,1].T, tab_v[:,2].T, tab_pot.T[0]]).T
 
     with open(name_new, 'wb') as f_out:
