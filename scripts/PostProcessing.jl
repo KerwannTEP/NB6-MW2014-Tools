@@ -11,15 +11,28 @@ using Statistics
 tabargs = ArgParseSettings()
 @add_arg_table! tabargs begin
     "--isnap"
-    help = "Snapshot index for IOM analysis"
+    help = "Snapshot index for IOM analysis."
     arg_type = Int64
     default = 1
+    "--name"
+    help = "Name of the model. Default: eccentric"
+    arg_type = String
+    default = "eccentric"
+    "--rmax"
+    help = "Position bounds (in kpc)."
+    arg_type = Float64
+    default = 25.0
 end
 
 parsed_args = parse_args(tabargs)
 const isnap = parsed_args["isnap"]
+const name_model = parsed_args["name"]
+const rmax = parsed_args["rmax"]
 
 const G_in_kpc_MSun_Myr = 4.49851e-12
+
+const path_to_data = "path/to/data/" # Location of the folder containing the data
+const path_to_plot = "path/to/plot/" # Location of the folder containing the plots
 
 ################################################################################################################
 # MWPotential2014 (Bovy 2015)
@@ -159,7 +172,7 @@ end
 
 function get_list_files()
 
-    list_files = glob("path/to/data/output/out_*.txt")
+    list_files = glob(path_to_data * name_model * "/output/out_*.txt")
     nbt = length(list_files)
     list_time = zeros(Int64, nbt)
 
@@ -178,8 +191,8 @@ function treat_data()
     # Read data
     ###############################################
 
-    data_global = readdlm("path/to/data/global.30")
-    data_lag = readdlm("path/to/data/lagr.7")
+    data_global = readdlm(path_to_data * name_model * "/global.30")
+    data_lag = readdlm(path_to_data * name_model * "/lagr.7")
 
     list_files, nbt = get_list_files()
 
@@ -212,6 +225,16 @@ function treat_data()
     tab_Lz_wrt_cluster_in_kpckms = zeros(Float64, Npart)
 
     tab_pos_unbound_in_kpc = zeros(Float64, Npart, 3)
+    tab_phi1_phi2_in_deg = zeros(Float64, Npart, 2)
+
+    tab_rc_norm = zeros(Float64, 3)
+    tab_tc_norm = zeros(Float64, 3)
+    tab_Lc_norm = zeros(Float64, 3)
+    
+    # temp 
+    xc_snap = 0.0
+    yc_snap = 0.0
+    zc_snap = 0.0
 
     Threads.@threads for i=1:nbt
         namefile = list_files[i]
@@ -309,7 +332,7 @@ function treat_data()
             Lxtot += Lxi
             Lytot += Lyi
             Lztot += Lzi
-            
+
             # Energy within the cluster frame 
             Ui_c = Uni
             Ki_c = 0.5 * m * (vxc^2 + vyc^2 + vzc^2)
@@ -339,9 +362,57 @@ function treat_data()
 
         # Snapshot IOM
         # Use specific IOMs (i.e. IOMs per unit mass)
+        # Compute a map of (phi1, phi2)
         if (i == isnap)
-            index = 1
 
+            # Compute co-rotating frame (rcl, tcl, Lcl) -> (xs,ys,zs)
+            # Lcl = rcl x vcl 
+            # tcl = Lcl x rcl
+
+            # Lcl_x = ycl vzcl - zcl vycl
+            # Lcl_y = zcl vxcl - xcl vzcl
+            # Lcl_z = xcl vycl - ycl vxcl
+
+            # tcl_x = Lcl_y zcl - Lcl_z ycl
+            # tcl_y = Lcl_z xcl - Lcl_x zcl
+            # tcl_z = Lcl_x ycl - Lcl_y xcl
+
+            # r = x  e_x   + y  e_y   + z  e_z
+            # r = x' t{rcl} + y' t{tcl} + z' t{Lcl}
+
+            # xs = <r,rcl>/|rcl| = (x xcl + y ycl + z zcl)/|rcl|
+            # ys = <r,tcl>/|tcl| = (x tcl_x + y tcl_y + z tcl_z)/|tcl|
+            # zs = <r,Lcl>/|Lcl| = (x Lcl_x + y Lcl_y + z Lcl_z)/|Lcl|
+
+            xc_snap = xcl * kpc_per_HU
+            yc_snap = ycl * kpc_per_HU
+            zc_snap = zcl * kpc_per_HU
+
+            rcl = sqrt(xcl^2 + ycl^2 + zcl^2)
+
+            Lcl_x = ycl * vzcl - zcl * vycl
+            Lcl_y = zcl * vxcl - xcl * vzcl
+            Lcl_z = xcl * vycl - ycl * vxcl
+            Lcl = sqrt(Lcl_x^2 + Lcl_y^2 + Lcl_z^2)
+
+            tcl_x = Lcl_y * zcl - Lcl_z * ycl
+            tcl_y = Lcl_z * xcl - Lcl_x * zcl
+            tcl_z = Lcl_x * ycl - Lcl_y * xcl
+            tcl = sqrt(tcl_x^2 + tcl_y^2 + tcl_z^2)
+
+            tab_rc_norm[1] = xcl/rcl * 5
+            tab_rc_norm[2] = ycl/rcl * 5
+            tab_rc_norm[3] = zcl/rcl * 5
+
+            tab_tc_norm[1] = tcl_x/tcl * 5
+            tab_tc_norm[2] = tcl_y/tcl * 5
+            tab_tc_norm[3] = tcl_z/tcl * 5
+
+            tab_Lc_norm[1] = Lcl_x/Lcl * 5
+            tab_Lc_norm[2] = Lcl_y/Lcl * 5
+            tab_Lc_norm[3] = Lcl_z/Lcl * 5
+
+            index = 1
             for k=1:Npart 
                 xc, yc, zc = tab_r_in_HU[k, :]
                 x = xc + xcl
@@ -389,6 +460,17 @@ function treat_data()
 
                 Ei_in_HU = Ki + Ui
 
+                # Coordinates in the sky place 
+                xs = (x * xcl   + y * ycl   + z * zcl)/rcl
+                ys = (x * tcl_x + y * tcl_y + z * tcl_z)/tcl
+                zs = (x * Lcl_x + y * Lcl_y + z * Lcl_z)/Lcl
+
+                phi1 = atan(ys, xs)
+                phi2 = asin(zs/sqrt(xs^2+ys^2+zs^2))
+
+                tab_phi1_phi2_in_deg[k, 1] = phi1 * 180.0/pi
+                tab_phi1_phi2_in_deg[k, 2] = phi2 * 180.0/pi
+
                 if (Ei_c >= 0.0)
 
                     # Convert to astrophysical units 
@@ -412,8 +494,8 @@ function treat_data()
     # Save in HDF5 file
     ###############################################
 
-    mkpath("path/to/data/post_treatment/")
-    namefile_hf5 = "path/to/data/post_treatment/iom_cluster.hf5"
+    mkpath(path_to_data * "post_treatment/"*name_model*"/")
+    namefile_hf5 = path_to_data * "post_treatment/"*name_model*"/iom_cluster.hf5"
     file = h5open(namefile_hf5, "w")
 
     write(file, "data_Etot_wrt_host", tab_E_in_HU)
@@ -458,7 +540,7 @@ function treat_data()
         labels=:false, 
         xlabel="Time [Myr]", 
         ylabel="Energy [HU]", 
-        xticks=0:500:5000,
+        # xticks=0:500:5000,
         xminorticks=2,
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
@@ -466,6 +548,10 @@ function treat_data()
 
     display(plt)
     readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/energy.pdf"
+    savefig(plt, namefile_pdf)
 
     # Fractional (total) energy
     dataFracE = abs.(1.0 .- tab_E_in_HU[2:end] ./ tab_E_in_HU[1])
@@ -477,7 +563,7 @@ function treat_data()
         xlabel="Time [Myr]", 
         ylabel="Fractional energy", 
         yaxis=:log10,
-        xticks=0:500:5000,
+        # xticks=0:500:5000,
         xminorticks=2,
         yticks=10.0 .^ (-20:1:2),
         yminorticks=10,
@@ -488,12 +574,16 @@ function treat_data()
     display(plt)
     readline()
 
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/frac_energy.pdf"
+    savefig(plt, namefile_pdf)
+
     # Total angular momentum Lz
     plt = plot(tab_time_in_HU .* Myr_per_HU, tab_L_in_HU[:, 3], 
         labels=:false, 
         xlabel="Time [Myr]", 
         ylabel=L"L_z"*" [HU]", 
-        xticks=0:500:5000,
+        # xticks=0:500:5000,
         xminorticks=2,
         yminorticks=10,
         xlims=(tab_time_in_HU[1], tab_time_in_HU[end])  .* Myr_per_HU,
@@ -501,6 +591,10 @@ function treat_data()
 
     display(plt)
     readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/momentum_z.pdf"
+    savefig(plt, namefile_pdf)
 
     # Fractional angular momentum Lz
     dataFracLz = abs.(1.0 .- tab_L_in_HU[2:end, 3] ./ tab_L_in_HU[1,3])
@@ -512,7 +606,7 @@ function treat_data()
         xlabel="Time [Myr]", 
         ylabel="Fractional angular momentum", 
         yaxis=:log10,
-        xticks=0:500:5000,
+        # xticks=0:500:5000,
         xminorticks=2,
         yticks=10.0 .^ (-20:1:2),
         yminorticks=10,
@@ -522,6 +616,10 @@ function treat_data()
 
     display(plt)
     readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/frac_momentum_z.pdf"
+    savefig(plt, namefile_pdf)
 
     # Virial ratio
     plt = plot(tab_time_in_HU[1:end] .* Myr_per_HU, tab_virial_ratio, 
@@ -539,20 +637,29 @@ function treat_data()
     display(plt)
     readline()
 
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/virial_ratio.pdf"
+    savefig(plt, namefile_pdf)
+
     # Distance to cluster
     dmax = maximum(tab_dist_cluster_in_kpc) * 1.1
     plt = plot(tab_time_in_HU .* Myr_per_HU, tab_dist_cluster_in_kpc,
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Distance to cluster [kpc]",
                 xlims=(tab_time_in_HU[1], tab_time_in_HU[end]) .* Myr_per_HU,
-                xticks=0:500:5000,
+                # xticks=0:500:5000,
                 xminorticks=2,
+                # ylims=(7.9995, 8.0075),
                 ylims=(0.0, dmax),
                 marker=true, markersize=2,
                 frame=:box)
 
     display(plt)
     readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/distance_cluster.pdf"
+    savefig(plt, namefile_pdf)
 
     # Velocity of the cluster
     dmax = maximum(tab_velocity_cluster_in_kms) * 1.1
@@ -560,21 +667,25 @@ function treat_data()
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Cluster velocity [km/s]",
                 xlims=(tab_time_in_HU[1], tab_time_in_HU[end]) .* Myr_per_HU,
-                xticks=0:500:5000,
+                # xticks=0:500:5000,
                 xminorticks=2,
-                ylims=(0.0, dmax),
+                # ylims=(0.0, dmax),
                 marker=true, markersize=2,
                 frame=:box)
 
     display(plt)
     readline()
 
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/velocity_cluster.pdf"
+    savefig(plt, namefile_pdf)
+
     # Unbound particles
     plt = plot(data_global[2:end,1] .* Myr_per_HU, data_global[2:end,31] ./Npart .* 100.0,
                 labels=false,
                 xlabel="Time [Myr]", ylabel="Fraction of unbound stars [%]",
                 xlims=(data_global[2,1], data_global[end,1]) .* Myr_per_HU,
-                xticks=0:500:5000,
+                # xticks=0:500:5000,
                 xminorticks=2,
                 yticks=0:10:100,
                 yminorticks=5,
@@ -582,6 +693,10 @@ function treat_data()
 
     display(plt)
     readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/unbound_fraction.pdf"
+    savefig(plt, namefile_pdf)
 
     # Lagrange radii and core radius
 
@@ -598,6 +713,10 @@ function treat_data()
 
     display(plt)
     readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/lagrange_radii.pdf"
+    savefig(plt, namefile_pdf)
 
 
     # Snapshot IOM
@@ -617,8 +736,7 @@ function treat_data()
     time_snapshot_in_Myr = tab_time_in_HU[isnap] .* Myr_per_HU
     time_snapshot_in_Myr = round(time_snapshot_in_Myr, digits=1) # Cutoff digits
 
-    s = 1
-    rmax = 25 # kpc
+    s = 1.0
 
     plt = scatter(tab_pos_unbound_in_kpc[1:Nub, 1],
                 tab_pos_unbound_in_kpc[1:Nub, 2],
@@ -636,8 +754,56 @@ function treat_data()
 
     scatter!(plt, [0], [0], [0], label=false, color=:red)
 
+    plot!(plt, [xc_snap, xc_snap+tab_rc_norm[1]],
+               [yc_snap, yc_snap+tab_rc_norm[2]], 
+               [zc_snap, zc_snap+tab_rc_norm[3]],
+                arrow=true, color=:cyan, linewidth=1,
+                label=L"\mathbf{\hat{r}}_{\mathrm{c}}")
+
+    plot!(plt, [xc_snap, xc_snap+tab_tc_norm[1]],
+               [yc_snap, yc_snap+tab_tc_norm[2]], 
+               [zc_snap, zc_snap+tab_tc_norm[3]],
+                arrow=true, color=:yellow, linewidth=1,
+                label=L"\mathbf{\hat{t}}_{\mathrm{c}}")
+
+    plot!(plt, [xc_snap, xc_snap+tab_Lc_norm[1]],
+               [yc_snap, yc_snap+tab_Lc_norm[2]], 
+               [zc_snap, zc_snap+tab_Lc_norm[3]],
+               arrow=true, color=:magenta, linewidth=1,
+               label=L"\mathbf{\hat{L}}_{\mathrm{c}}")
+
     display(plt)
     readline()
+
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/snapshot_stream_t_"*string(time_snapshot_in_Myr)*"_Myr.pdf"
+    savefig(plt, namefile_pdf)
+
+
+    s = 1.0
+    # ang_max = 180.0 # deg
+
+    plt = scatter(tab_phi1_phi2_in_deg[:, 1], tab_phi1_phi2_in_deg[:, 2],
+                # xlims=(-ang_max, ang_max), ylims=(-ang_max, ang_max)
+                xlabel=L"\phi_1"*" [deg]", ylabel=L"\phi_2"*" [deg]", 
+                framestyle=:box, labels=false,
+                aspect_ratio=1, size=(800,800), 
+                left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
+                background_color = :black,
+                markersize=s, color=:white, 
+                markerstrokewidth = 0,
+                title="t = "*string(time_snapshot_in_Myr)*" Myr")
+
+    scatter!(plt, [0], [0], label=false, color=:red)
+
+    display(plt)
+    readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/snapshot_angles_stream_t_"*string(time_snapshot_in_Myr)*"_Myr.pdf"
+    savefig(plt, namefile_pdf)
+
 
     s = 2.0
 
@@ -655,6 +821,10 @@ function treat_data()
 
     display(plt)
     readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/snapshot_IOM_t_"*string(time_snapshot_in_Myr)*"_Myr.pdf"
+    savefig(plt, namefile_pdf)
 
 end
 

@@ -16,12 +16,25 @@ tabargs = ArgParseSettings()
     help = "Convert output to galacto-centric frame."
     arg_type = Bool
     default = true
+    "--name"
+    help = "Name of the model. Default: eccentric"
+    arg_type = String
+    default = "eccentric"
+    "--rmax"
+    help = "Position bounds (in kpc)."
+    arg_type = Float64
+    default = 25.0
 end
 
 parsed_args = parse_args(tabargs)
 
 const framepersec = parsed_args["framerate"]
 const GALACTIC_FRAME = parsed_args["galactic_frame"]
+const name_model = parsed_args["name"]
+const rmax = parsed_args["rmax"]
+
+const path_to_data = "path/to/data/" # Location of the folder containing the data
+const path_to_plot = "path/to/plot/" # Location of the folder containing the plots
 
 ################################################################################################################
 # Read the run's information
@@ -30,7 +43,7 @@ const GALACTIC_FRAME = parsed_args["galactic_frame"]
 
 function get_list_files()
 
-    list_files = glob("path/to/data/output/out_*.txt")
+    list_files = glob(path_to_data * name_model * "/output/out_*.txt")
     nbt = length(list_files)
     list_time = zeros(Int64, nbt)
 
@@ -77,8 +90,6 @@ function plot_data()
 
     end
 
-    rmax = 25.0 # kpc
-
     # Plot the orbit of cluster
     p = scatter(tab_Rc_Vc[:,1], tab_Rc_Vc[:,2], tab_Rc_Vc[:,3],
             xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", zlabel=L"z"*" [kpc]",
@@ -95,8 +106,8 @@ function plot_data()
     display(p)
     readline()
 
-    mkpath("path/to/plot/fig/")
-    namefile_pdf = "path/to/plot/fig/ClusterOrbit.pdf"
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/ClusterOrbit.pdf"
     savefig(p, namefile_pdf)
 
     anim = @animate for i=1:1:nbt
@@ -163,8 +174,8 @@ function plot_data()
 
     end
 
-    mkpath("path/to/plot/gif_output/")
-    namefile_gif = "path/to/plot/gif_output/StreamEvolution.gif"
+    mkpath(path_to_plot * "gif_output/"*name_model*"/")
+    namefile_gif = path_to_plot * "gif_output/"*name_model*"/StreamEvolution.gif"
     gif(anim, namefile_gif, fps = framepersec)
 
 end
