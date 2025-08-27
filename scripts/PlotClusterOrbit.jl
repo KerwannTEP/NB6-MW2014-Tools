@@ -56,7 +56,6 @@ function get_list_files()
     return list_files[p], nbt
 end
 
-# temp 
 
 function plot_data()
 
@@ -90,16 +89,94 @@ function plot_data()
 
     end
 
-    # Plot the orbit of cluster
+
+    # Plot the orbit of cluster in the (x, y) place
+    p = plot(tab_Rc_Vc[:,1] , tab_Rc_Vc[:,2],
+            xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]",
+            xlims=(-rmax, rmax), ylims=(-rmax, rmax), 
+            title="Cluster's center", 
+            framestyle=:box, label=false,
+            aspect_ratio=1, size=(600,600), 
+            marker=true,
+            markerstrokewidth=0,
+            markersize=2)
+
+    display(p)
+    readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/ClusterOrbit_xy.pdf"
+    savefig(p, namefile_pdf)
+
+
+    # Plot the orbit of cluster in the (x, z) place
+    p = plot(tab_Rc_Vc[:,1] , tab_Rc_Vc[:,3],
+            xlabel=L"x"*" [kpc]", ylabel=L"z"*" [kpc]",
+            xlims=(-rmax, rmax), ylims=(-rmax, rmax), 
+            title="Cluster's center", 
+            framestyle=:box, label=false,
+            aspect_ratio=1, size=(600,600), 
+            marker=true,
+            markerstrokewidth=0,
+            markersize=2)
+
+    display(p)
+    readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/ClusterOrbit_xz.pdf"
+    savefig(p, namefile_pdf)
+
+
+    # Plot the orbit of cluster in the (y, z) place
+    p = plot(tab_Rc_Vc[:,2] , tab_Rc_Vc[:,3],
+            xlabel=L"y"*" [kpc]", ylabel=L"z"*" [kpc]",
+            xlims=(-rmax, rmax), ylims=(-rmax, rmax), 
+            title="Cluster's center", 
+            framestyle=:box, label=false,
+            aspect_ratio=1, size=(600,600), 
+            marker=true,
+            markerstrokewidth=0,
+            markersize=2)
+
+    display(p)
+    readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/ClusterOrbit_yz.pdf"
+    savefig(p, namefile_pdf)
+
+
+    # Plot the orbit of cluster in the (R, z) place
+    p = plot(sqrt.(tab_Rc_Vc[:,1] .^2 .+ tab_Rc_Vc[:,2] .^2), tab_Rc_Vc[:,3],
+            xlabel=L"R"*" [kpc]", ylabel=L"z"*" [kpc]",
+            xlims=(0.0, rmax), ylims=(-rmax, rmax), 
+            title="Cluster's center", 
+            framestyle=:box, label=false,
+            aspect_ratio=1, size=(300,600), 
+            left_margin = [5mm 0mm], 
+            marker=true,
+            markerstrokewidth=0,
+            markersize=2)
+
+    display(p)
+    readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/ClusterOrbit_Rz.pdf"
+    savefig(p, namefile_pdf)
+
+
+    # Plot the orbit of cluster in 3D space
     p = scatter(tab_Rc_Vc[:,1], tab_Rc_Vc[:,2], tab_Rc_Vc[:,3],
             xlabel=L"x"*" [kpc]", ylabel=L"y"*" [kpc]", zlabel=L"z"*" [kpc]",
             xlims=(-rmax, rmax), ylims=(-rmax, rmax),  zlims=(-rmax, rmax),
             title="Cluster's center", 
             framestyle=:box, label=false,
-            aspect_ratio=1, size=(800,800), 
+            aspect_ratio=1, size=(600,600), 
             camera=(35, 10),
             markerstrokewidth=0,
-            markersize=3)
+            markersize=2)
 
     scatter!(p, [0], [0], [0], label=false, color=:red)
 
@@ -110,6 +187,8 @@ function plot_data()
     namefile_pdf = path_to_plot * "fig/"*name_model*"/ClusterOrbit.pdf"
     savefig(p, namefile_pdf)
 
+    
+    # Gif of the orbit
     anim = @animate for i=1:1:nbt
         namefile = list_files[i]
         data = readdlm(namefile)

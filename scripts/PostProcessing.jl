@@ -29,7 +29,7 @@ const isnap = parsed_args["isnap"]
 const name_model = parsed_args["name"]
 const rmax = parsed_args["rmax"]
 
-const G_in_kpc_MSun_Myr = 4.49851e-12
+const G_in_pc1_MSun1_kms2 = 4.3009172706e-3
 
 const path_to_data = "path/to/data/" # Location of the folder containing the data
 const path_to_plot = "path/to/plot/" # Location of the folder containing the plots
@@ -74,7 +74,7 @@ function Menc_bulge(r::Float64)
     a = 1.5 - b_alpha/2.0
     xup = (r/b_rc)^2
     ga = gamma_low(xup, a) # = gamma(a) * gammad(x, a)
-    b_amp = 1.0 # G*M units
+    b_amp = 1.0
     menc = b_amp*2*pi*b_rc^(3-b_alpha)*ga
 
     return menc
@@ -99,7 +99,7 @@ function force_disk_at_R0()
     R = x
     bz = sqrt(d_b^2 + z^2)
     az = sqrt(R^2 + (d_a+bz)^2)
-    d_amp = 1.0 # G*M units
+    d_amp = 1.0
     az3 = d_amp/az^3
     FR = -az3*x
 
@@ -114,7 +114,7 @@ function force_halo_at_R0()
     z = 0.0 # kpc 
     r = x
     ra = h_a + r
-    h_amp = 1.0 # G*M units
+    h_amp = 1.0
     dp = h_amp*(1/(r^2*ra) - log(1+r/h_a)/r^3)
     Fr = dp*x
 
@@ -123,9 +123,9 @@ end
 
 function normalize_amplitude()
 
-    bamp = b_norm * abs(F_scale/force_bulge_at_R0()) # G*Mbulge
-    damp = d_norm * abs(F_scale/force_disk_at_R0()) # G*Mdisk
-    hamp = h_norm * abs(F_scale/force_halo_at_R0()) # G*Mdisk
+    bamp = b_norm * abs(F_scale/force_bulge_at_R0())
+    damp = d_norm * abs(F_scale/force_disk_at_R0())
+    hamp = h_norm * abs(F_scale/force_halo_at_R0())
 
     return bamp, damp, hamp
 end
@@ -163,6 +163,16 @@ function potential_halo(r::Float64, amp::Float64=h_amp)
 
     return pot
 
+end
+
+function E_max(amp::Float64=b_amp)
+
+    a = 1.0 - 0.5*b_alpha
+    g1 = gamma(a) # gammad(xup, a) * gamma(a)
+
+    pot = amp*2*pi*b_rc^(3.0-b_alpha)*(g1/b_rc)
+
+    return pot 
 end
 
 
@@ -221,15 +231,22 @@ function treat_data()
     Npart = length(data0_star[:, 1])
 
     Nub = 0
+    tab_E_wrt_host_in_kms = zeros(Float64, Npart)
+    tab_Lz_wrt_host_in_kpckms = zeros(Float64, Npart)
+    tab_E_wrt_host_in_kms_unbound = zeros(Float64, Npart)
+    tab_Lz_wrt_host_in_kpckms_unbound = zeros(Float64, Npart)
     tab_E_wrt_cluster_in_kms = zeros(Float64, Npart)
-    tab_Lz_wrt_cluster_in_kpckms = zeros(Float64, Npart)
 
     tab_pos_unbound_in_kpc = zeros(Float64, Npart, 3)
+    tab_pos_snapshot_in_kpc = zeros(Float64, Npart, 3)
+    tab_vel_snapshot_in_kms = zeros(Float64, Npart, 3)
     tab_phi1_phi2_in_deg = zeros(Float64, Npart, 2)
 
     tab_rc_norm = zeros(Float64, 3)
     tab_tc_norm = zeros(Float64, 3)
     tab_Lc_norm = zeros(Float64, 3)
+
+    tab_pos_corotating_in_kpc = zeros(Float64, Npart, 3)
     
     # temp 
     xc_snap = 0.0
@@ -465,17 +482,34 @@ function treat_data()
                 ys = (x * tcl_x + y * tcl_y + z * tcl_z)/tcl
                 zs = (x * Lcl_x + y * Lcl_y + z * Lcl_z)/Lcl
 
+                tab_pos_corotating_in_kpc[k, 1] = xs * kpc_per_HU
+                tab_pos_corotating_in_kpc[k, 2] = ys * kpc_per_HU
+                tab_pos_corotating_in_kpc[k, 3] = zs * kpc_per_HU
+
                 phi1 = atan(ys, xs)
                 phi2 = asin(zs/sqrt(xs^2+ys^2+zs^2))
 
                 tab_phi1_phi2_in_deg[k, 1] = phi1 * 180.0/pi
                 tab_phi1_phi2_in_deg[k, 2] = phi2 * 180.0/pi
 
+                tab_pos_snapshot_in_kpc[k, 1] = x * kpc_per_HU
+                tab_pos_snapshot_in_kpc[k, 2] = y * kpc_per_HU
+                tab_pos_snapshot_in_kpc[k, 3] = z * kpc_per_HU
+                tab_vel_snapshot_in_kms[k, 1] = vx * kms_per_HU
+                tab_vel_snapshot_in_kms[k, 2] = vy * kms_per_HU
+                tab_vel_snapshot_in_kms[k, 3] = vz * kms_per_HU
+
+                tab_E_wrt_cluster_in_kms[k] = Ei_c * (kms_per_HU)^2
+
+                tab_E_wrt_host_in_kms[k] = Ei_in_HU * (kms_per_HU)^2
+                tab_Lz_wrt_host_in_kpckms[k] = Lzi_in_HU * kpc_per_HU * kms_per_HU
+
+
                 if (Ei_c >= 0.0)
 
                     # Convert to astrophysical units 
-                    tab_E_wrt_cluster_in_kms[index] = Ei_in_HU * (kms_per_HU)^2
-                    tab_Lz_wrt_cluster_in_kpckms[index] = Lzi_in_HU * kpc_per_HU * kms_per_HU
+                    tab_E_wrt_host_in_kms_unbound[index] = Ei_in_HU * (kms_per_HU)^2
+                    tab_Lz_wrt_host_in_kpckms_unbound[index] = Lzi_in_HU * kpc_per_HU * kms_per_HU
                     tab_pos_unbound_in_kpc[index, 1] = x * kpc_per_HU
                     tab_pos_unbound_in_kpc[index, 2] = y * kpc_per_HU
                     tab_pos_unbound_in_kpc[index, 3] = z * kpc_per_HU
@@ -490,12 +524,42 @@ function treat_data()
 
     end
 
+    println("==============================")
+
+    # Energy of the cluster's COM
+    factor_pot = (1.0/kpc_per_HU * 1.0/pc_per_HU * Myr_per_HU^2)
+
+    Kb = 0.5 * tab_velocity_cluster_in_kms[1]^2 # in (km/s)^2
+    Ub = (potential_bulge(tab_dist_cluster_in_kpc[1]) 
+        + potential_disk(sqrt(tab_Rc_Vc[1, 1]^2+tab_Rc_Vc[1, 2]^2), tab_Rc_Vc[1, 3])
+        + potential_halo(tab_dist_cluster_in_kpc[1]))  * factor_pot * kms_per_HU^2  # in (km/s)^2
+
+    Eb = Kb + Ub
+
+    println("Barycentric energy of the cluster : ", Eb, " (km/2)^2")
+    
+    E_esc = E_max() * factor_pot * kms_per_HU^2  # in (km/s)^2
+    println("Maximum bound energy              : ", E_esc, " (km/2)^2")
+
+    if (Eb < E_esc)
+        println("-> The cluster is bound.")
+    else
+        println("-> The cluster is unbound.")
+    end
+
+    println("==============================")
+
     ###############################################
     # Save in HDF5 file
     ###############################################
 
+    time_snapshot_in_Myr = tab_time_in_HU[isnap] .* Myr_per_HU
+    time_snapshot_in_Myr = round(time_snapshot_in_Myr, digits=1) # Cutoff digits
+
+    # Long-term relaxation
+
     mkpath(path_to_data * "post_treatment/"*name_model*"/")
-    namefile_hf5 = path_to_data * "post_treatment/"*name_model*"/iom_cluster.hf5"
+    namefile_hf5 = path_to_data * "post_treatment/"*name_model*"/iom_cluster_"*name_model*".hf5"
     file = h5open(namefile_hf5, "w")
 
     write(file, "data_Etot_wrt_host", tab_E_in_HU)
@@ -512,17 +576,59 @@ function treat_data()
 
     write(file, "data_unbound_frac", data_global[2:end,31] ./ Npart)
 
+    write(file, "data_lagrange_rad_00.1_pc", data_lag[3:end, 2] .* pc_per_HU)
+    write(file, "data_lagrange_rad_00.3_pc", data_lag[3:end, 3] .* pc_per_HU)
+    write(file, "data_lagrange_rad_00.5_pc", data_lag[3:end, 4] .* pc_per_HU)
     write(file, "data_lagrange_rad_01_pc", data_lag[3:end, 5] .* pc_per_HU)
+    write(file, "data_lagrange_rad_03_pc", data_lag[3:end, 6] .* pc_per_HU)
+    write(file, "data_lagrange_rad_05_pc", data_lag[3:end, 7] .* pc_per_HU)
     write(file, "data_lagrange_rad_10_pc", data_lag[3:end, 8] .* pc_per_HU)
     write(file, "data_lagrange_rad_20_pc", data_lag[3:end, 9] .* pc_per_HU)
+    write(file, "data_lagrange_rad_30_pc", data_lag[3:end, 10] .* pc_per_HU)
+    write(file, "data_lagrange_rad_40_pc", data_lag[3:end, 11] .* pc_per_HU)
     write(file, "data_lagrange_rad_50_pc", data_lag[3:end, 12] .* pc_per_HU)
+    write(file, "data_lagrange_rad_60_pc", data_lag[3:end, 13] .* pc_per_HU)
+    write(file, "data_lagrange_rad_70_pc", data_lag[3:end, 14] .* pc_per_HU)
+    write(file, "data_lagrange_rad_80_pc", data_lag[3:end, 15] .* pc_per_HU)
     write(file, "data_lagrange_rad_90_pc", data_lag[3:end, 16] .* pc_per_HU)
+    write(file, "data_lagrange_rad_95_pc", data_lag[3:end, 17] .* pc_per_HU)
+    write(file, "data_lagrange_rad_99_pc", data_lag[3:end, 18] .* pc_per_HU)
+    write(file, "data_lagrange_rad_100_pc", data_lag[3:end, 19] .* pc_per_HU)
     write(file, "data_r_core_pc", data_lag[3:end, 20] .* pc_per_HU)
 
     write(file, "Npart", Npart)
     write(file, "pc_per_HU", pc_per_HU)
     write(file, "kpc_per_HU", kpc_per_HU)
-    write(file, "G_in_kpc_MSun_Myr", G_in_kpc_MSun_Myr)
+    write(file, "G_in_pc1_MSun1_kms2", G_in_pc1_MSun1_kms2)
+    write(file, "Msun_per_HU", Msun_per_HU)
+
+    write(file, "Myr_per_HU", Myr_per_HU)
+    write(file, "kms_per_HU", kms_per_HU)
+
+    close(file)
+
+
+    # Snapshot
+
+    mkpath(path_to_data * "post_treatment/"*name_model*"/")
+    namefile_hf5 = path_to_data * "post_treatment/"*name_model*"/snapshot_cluster_"*name_model*"_time_"*string(time_snapshot_in_Myr)*"_Myr.hf5"
+    file = h5open(namefile_hf5, "w")
+
+    write(file, "data_phi1_phi2_in_deg",tab_phi1_phi2_in_deg)
+    write(file, "data_E_wrt_host_in_kms_unbound", tab_E_wrt_host_in_kms_unbound[1:Nub])
+    write(file, "data_Lz_wrt_host_in_kpckms_unbound", tab_Lz_wrt_host_in_kpckms_unbound[1:Nub])
+
+    write(file, "data_E_wrt_cluster_in_kms", tab_E_wrt_cluster_in_kms)
+    write(file, "data_E_wrt_host_in_kms", tab_E_wrt_host_in_kms)
+    write(file, "data_Lz_wrt_host_in_kpckms", tab_Lz_wrt_host_in_kpckms)
+
+    write(file, "data_pos_in_kpc", tab_pos_snapshot_in_kpc)
+    write(file, "data_vel_in_kms", tab_vel_snapshot_in_kms)
+
+    write(file, "Npart", Npart)
+    write(file, "pc_per_HU", pc_per_HU)
+    write(file, "kpc_per_HU", kpc_per_HU)
+    write(file, "G_in_pc1_MSun1_kms2", G_in_pc1_MSun1_kms2)
     write(file, "Msun_per_HU", Msun_per_HU)
 
     write(file, "Myr_per_HU", Myr_per_HU)
@@ -687,7 +793,7 @@ function treat_data()
                 xlims=(data_global[2,1], data_global[end,1]) .* Myr_per_HU,
                 # xticks=0:500:5000,
                 xminorticks=2,
-                yticks=0:10:100,
+                # yticks=0:10:100,
                 yminorticks=5,
                 frame=:box)
 
@@ -720,21 +826,20 @@ function treat_data()
 
 
     # Snapshot IOM
-    meanE = mean(tab_E_wrt_cluster_in_kms[1:Nub])
-    varE = var(tab_E_wrt_cluster_in_kms[1:Nub], corrected=true, mean=meanE)
+    meanE = mean(tab_E_wrt_host_in_kms_unbound[1:Nub])
+    varE = var(tab_E_wrt_host_in_kms_unbound[1:Nub], corrected=true, mean=meanE)
     sigmaE = sqrt(varE)
-    tabDeltaE =  (tab_E_wrt_cluster_in_kms[1:Nub] .- meanE) ./ sigmaE
+    tabDeltaE =  (tab_E_wrt_host_in_kms_unbound[1:Nub] .- meanE) ./ sigmaE
 
-    meanLz = mean(tab_Lz_wrt_cluster_in_kpckms[1:Nub])
-    varLz = var(tab_Lz_wrt_cluster_in_kpckms[1:Nub], corrected=true, mean=meanLz)
+    meanLz = mean(tab_Lz_wrt_host_in_kpckms_unbound[1:Nub])
+    varLz = var(tab_Lz_wrt_host_in_kpckms_unbound[1:Nub], corrected=true, mean=meanLz)
     sigmaLz = sqrt(varLz)
-    tabDeltaLz =  (tab_Lz_wrt_cluster_in_kpckms[1:Nub] .- meanLz) ./ sigmaLz
+    tabDeltaLz =  (tab_Lz_wrt_host_in_kpckms_unbound[1:Nub] .- meanLz) ./ sigmaLz
 
     println("<E>  [unbound, 10^4 (km/s)^2  ] = ", meanE/10^4)
     println("<Lz> [unbound, 10^2 kpc (km/s)] = ", meanLz/10^2)
 
-    time_snapshot_in_Myr = tab_time_in_HU[isnap] .* Myr_per_HU
-    time_snapshot_in_Myr = round(time_snapshot_in_Myr, digits=1) # Cutoff digits
+    
 
     s = 1.0
 
@@ -780,6 +885,27 @@ function treat_data()
     namefile_pdf = path_to_plot * "fig/"*name_model*"/snapshot_stream_t_"*string(time_snapshot_in_Myr)*"_Myr.pdf"
     savefig(plt, namefile_pdf)
 
+    plt = scatter(tab_pos_corotating_in_kpc[:, 1],
+                tab_pos_corotating_in_kpc[:, 2],
+                xlims=(-rmax, rmax), ylims=(-rmax, rmax), 
+                xlabel=L"x_{\mathrm{corr}}"*" [kpc]", ylabel=L"y_{\mathrm{corr}}"*" [kpc]", 
+                framestyle=:box, labels=false,
+                aspect_ratio=1, size=(800,800), 
+                left_margin = [2mm 0mm], right_margin = [2mm 0mm], 
+                background_color = :black,
+                markersize=s, color=:white, 
+                markerstrokewidth = 0,
+                title="t = "*string(time_snapshot_in_Myr)*" Myr")
+
+    scatter!(plt, [0], [0], label=false, color=:red)
+
+    display(plt)
+    readline()
+
+    mkpath(path_to_plot * "fig/"*name_model*"/")
+    namefile_pdf = path_to_plot * "fig/"*name_model*"/snapshot_corotating_stream_t_"*string(time_snapshot_in_Myr)*"_Myr.pdf"
+    savefig(plt, namefile_pdf)
+
 
     s = 1.0
     # ang_max = 180.0 # deg
@@ -795,7 +921,7 @@ function treat_data()
                 markerstrokewidth = 0,
                 title="t = "*string(time_snapshot_in_Myr)*" Myr")
 
-    scatter!(plt, [0], [0], label=false, color=:red)
+    # scatter!(plt, [0], [0], label=false, color=:red)
 
     display(plt)
     readline()
@@ -807,7 +933,7 @@ function treat_data()
 
     s = 2.0
 
-    plt = scatter(tab_Lz_wrt_cluster_in_kpckms[1:Nub] ./ 10^2, tab_E_wrt_cluster_in_kms[1:Nub] ./ 10^4,
+    plt = scatter(tab_Lz_wrt_host_in_kpckms_unbound[1:Nub] ./ 10^2, tab_E_wrt_host_in_kms_unbound[1:Nub] ./ 10^4,
                 xlabel=L"L_z \ [10^2 \ \mathrm{kpc}\ \mathrm{km}/\mathrm{s}]", ylabel=L"E \ [10^4 \ (\mathrm{km}/\mathrm{s})^2]", 
                 framestyle=:box, labels=false, 
                 markerstrokewidth = 0,
